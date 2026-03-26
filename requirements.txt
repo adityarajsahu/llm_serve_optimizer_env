@@ -1,0 +1,13 @@
+# Core OpenEnv framework
+openenv-core>=0.2.1
+
+# Web server
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+websockets>=12.0
+
+# Baseline script
+openai>=1.30.0
+
+# Utilities
+pydantic>=2.0.0
