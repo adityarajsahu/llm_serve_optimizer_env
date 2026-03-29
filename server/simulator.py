@@ -1,157 +1,222 @@
-import math
-from data.benchmark_data import (
-    LATENCY_TABLE,
-    THROUGHPUT_TABLE,
-    MEMORY_TABLE,
-    OOM_CONDITIONS,
-    VALID_PARAM_VALUES,
-    CHUNKED_PREFILL_LATENCY_FACTOR,
-    MAX_SEQS_LATENCY_FACTOR
+import os
+import time
+import subprocess
+import statistics
+import psutil
+import requests
+from typing import Optional
+
+from data.model_card import (
+    MODEL_REGISTRY, 
+    VALID_PARAM_VALUES, 
+    REQUIRES_RESTART, 
+    REQUEST_ONLY, 
+    RAM_SAFETY_LIMIT_GB, 
+    VLLM_PORT, 
+    VLLM_STARTUP_TIMEOUT_S, 
+    BENCH_WARMUP_REQUESTS, 
+    BENCH_TIMED_REQUESTS, 
+    BENCH_MAX_TOKENS, 
+    BENCH_PROMPT
 )
 
+def _ram_used_gb() -> float:
+    try:
+        return round(psutil.virtual_memory().used / (1024 ** 3), 2)
+    except Exception:
+        return 0.0
+
+def _ram_total_gb() -> float:
+    try:
+        return round(psutil.virtual_memory().total / (1024 ** 3), 2)
+    except Exception:
+        return 8.0
+
+def _ram_available_gb() -> float:
+    try:
+        return round(psutil.virtual_memory().available / (1024 ** 3), 2)
+    except Exception:
+        return 4.0
+
 class SimulationResult:
-    def __init__(self, mean_e2el_ms: float, throughput_token_per_sec: float, gpu_memory_used_gb: float, oom: bool, config_note: str = ""):
-        self.mean_e2el_ms = mean_e2el_ms
-        self.throughput_token_per_sec = throughput_token_per_sec
-        self.gpu_memory_used_gb = gpu_memory_used_gb
-        self.oom = oom
+    def __init__(self, latency_p99_ms: float, latency_p50_ms: float, throughput_tok_per_sec: float, ram_used_gb: float, failed: bool, config_note: str = ""):
+        self.latency_p99_ms = latency_p99_ms
+        self.latency_p50_ms = latency_p50_ms
+        self.throughput_tok_per_sec = throughput_tok_per_sec
+        self.ram_used_gb = ram_used_gb
+        self.failed = failed
         self.config_note = config_note
 
-class LatencySimulator:
-    QUANT_LATENCY_RATIO = {
-        "fp16": 1.00,
-        "fp8":  0.58,
-        "int8": 0.62,
-        "awq":  0.56,
-    }
-
-    QUANT_MEMORY_RATIO = {
-        "fp16": 1.00,
-        "fp8":  0.59,
-        "int8": 0.56,
-        "awq":  0.49,
-    }
-
-    TP_SPEEDUP = {
-        1: 1.00,
-        2: 1.80,
-        4: 3.20,
-        8: 5.60,
-    }
-
-    def simulate(self, model: str, hardware: str, params: dict) -> SimulationResult:
-        tp = int(params.get("tensor_parallel_size", 1))
-        quant = str(params.get("quantization", "fp16"))
-        util = float(params.get("gpu_memory_utilization", 0.90))
-        batch = int(params.get("max_num_batched_tokens", 2048))
-        seqs = int(params.get("max_num_seqs", 256))
-        chunked = bool(params.get("enable_chunked_prefill", False))
-
-        if self._is_oom(model, hardware, quant, tp, util):
-            return SimulationResult(
-                mean_e2el_ms = float('inf'),
-                throughput_token_per_sec = 0.0,
-                gpu_memory_used_gb = self.gpu_total(hardware) * util + 5,
-                oom = True,
-                config_note = "OOM: not enough GPU memory for this configuration",
-            )
-
-        exact_key = (model, hardware, tp, quant, util, batch)
-        latency_mean = LATENCY_TABLE.get(exact_key)
-        throughput = THROUGHPUT_TABLE.get(exact_key)
-        memory = MEMORY_TABLE.get(exact_key)
-        note = "exact match"
-
-        if latency_mean is None:
-            latency_mean, note = self._interpolate_latency(model, hardware, tp, quant, util, batch)
-        if throughput is None:
-            throughput = self._interpolate_throughput(model, hardware, tp, quant, util, batch, latency_mean)
-        if memory is None:
-            memory = self._interpolate_memory(model, quant, tp)
-
-        chunked_factor = CHUNKED_PREFILL_LATENCY_FACTOR.get(chunked, 1.0)
-        seqs_factor = MAX_SEQS_LATENCY_FACTOR.get(seqs, 1.0)
-        latency_mean = latency_mean * chunked_factor * seqs_factor
-
-        gpu_cap = self.gpu_total(hardware)
-        kv_overhead = gpu_cap * util * 0.15   # KV cache scales with allocated GPU pool
-        total_memory = min(memory + kv_overhead, gpu_cap)  # hard ceiling = physical GPU memory
-
-        return SimulationResult(
-            mean_e2el_ms = latency_mean,
-            throughput_token_per_sec = round(throughput, 0),
-            gpu_memory_used_gb = round(total_memory, 1),
-            oom = False,
+    @classmethod
+    def failure(cls, note: str) -> "SimulationResult":
+        return cls(
+            latency_p99_ms = float('inf'),
+            latency_p50_ms = float('inf'),
+            throughput_tok_per_sec = 0.0,
+            ram_used_gb = _ram_used_gb(),
+            failed = True,
             config_note = note
         )
 
-    def _interpolate_latency(self, model: str, hardware: str, tp: int, quant: str, util: float, batch: int) -> tuple[float, str]:
-        base_key = self._find_base_key(model, hardware, batch)
-        if base_key is None:
-            base_latency = 120.0 if "70b" in model else 50.0
-        else:
-            base_latency = LATENCY_TABLE[base_key]
-            base_tp = base_key[2]
-            base_quant = base_key[3]
-            base_latency /= self.QUANT_LATENCY_RATIO.get(base_quant, 1.0)
-            base_latency *= self.TP_SPEEDUP.get(base_tp, 1.0) / self.TP_SPEEDUP.get(1, 1.0)
+class vLLMProcess:
+    def __init__(self):
+        self._proc: Optional[subprocess.Popen] = None
 
-        latency = base_latency
-        latency *= self.QUANT_LATENCY_RATIO.get(quant, 1.0)
-        latency /= self.TP_SPEEDUP.get(tp, 1.0)
+    def start(self, model_key: str, params: dict) -> bool:
+        self.stop()
 
-        ref_batch = 2048
-        if batch != ref_batch:
-            batch_factor = 1.0 - 0.08 * math.log2(max(batch, 512) / ref_batch)
-            batch_factor = max(0.70, min(batch_factor, 1.15))
-            latency *= batch_factor
+        model_info = MODEL_REGISTRY[model_key]
+        hf_id = model_info["hf_id"]
+        dtype = params.get("dtype", "float32")
+        max_len = int(params.get("max_model_len", 192))
 
-        latency *= max(0.95, 1.05 - util * 0.10)
-
-        return round(latency, 1), "interpolated"
-
-    def _interpolate_throughput(self, model: str, hardware: str, tp: int, quant: str, util: float, batch: int, latency_mean: float) -> float:
-        for key, tput in THROUGHPUT_TABLE.items():
-            if key[0] == model and key[1] == hardware and key[2] == tp and key[3] == quant:
-                ref_batch = key[5]
-                batch_scale = math.sqrt(batch / max(ref_batch, 1))
-                return round(tput * batch_scale, 0)
-
-        tokens_per_request = 256
-        concurrency = min(batch // 64, 16)
-        return round((1000 / latency_mean) * tokens_per_request * max(concurrency, 1), 0)
-
-    def _interpolate_memory(self, model: str, quant: str, tp: int) -> float:
-        fp16_mem = MEMORY_TABLE.get((model, "fp16", 1))
-        if fp16_mem is None:
-            fp16_mem = 140.0 if "70b" in model else 17.0
-        
-        per_gpu = fp16_mem / tp
-        per_gpu *= self.QUANT_MEMORY_RATIO.get(quant, 1.0)
-        return round(per_gpu, 1)
-
-    def _find_base_key(self, model: str, hardware: str, batch: int):
-        candidates = [
-            k for k in LATENCY_TABLE if k[0] == model and k[1] == hardware
+        cmd = [
+            "vllm", "serve",
+            "--model", hf_id,
+            "--port", str(VLLM_PORT),
+            "--dtype", dtype,
+            "--max-model-len", str(max_len)
         ]
-        if not candidates:
-            return None
 
-        return min(candidates, key = lambda k: abs(k[5] - batch))
+        hf_token = os.environ.get("HF_TOKEN", "")
+        if model_info["hf_token"] and hf_token:
+            cmd += ["--huggingface-token", hf_token]
 
-    def _is_oom(self, model: str, hardware: str, quant: str, tp: int, util: float) -> bool:
-        if OOM_CONDITIONS.get((model, hardware, quant, tp, util), False):
-            return True
-        mem_per_gpu = self._interpolate_memory(model, quant, tp)
-        gpu_total = self.gpu_total(hardware)
-        if mem_per_gpu > gpu_total * util:
-            return True
+        print(f"[vLLM] Starting: {' '.join(cmd)}")
+
+        try:
+            self._proc = subprocess.Popen(
+                cmd,
+                stdout = subprocess.DEVNULL,
+                stderr = subprocess.DEVNULL
+            )
+        except FileNotFoundError:
+            print("[vLLM] vllm not installed")
+            return False
+
+        url = f"http://localhost:{VLLM_PORT}/health"
+        deadline = time.time() + VLLM_STARTUP_TIMEOUT_S
+
+        while time.time() < deadline:
+            if self._proc.poll() is not None:
+                print("[vLLM] Process died during startup.")
+                return False
+            
+            try:
+                r = requests.get(url, timeout = 2)
+                if r.status_code == 200:
+                    print(f"[vLLM] Healthy. RAM used: {_ram_used_gb():.2f}GB / {_ram_total_gb():.1f}GB")
+                    return True
+            except requests.exceptions.ConnectionError:
+                pass
+            time.sleep(3)
+
+        print("[vLLM] Startup timed out.")
+        self.stop()
         return False
 
-    def gpu_total(self, hardware: str) -> float:
-        return {
-            "A100-80GB": 80.0,
-            "A100-40GB": 40.0,
-            "H100-80GB": 80.0,
-            "V100-32GB": 32.0,
-        }.get(hardware, 80.0)
+    def benchmark(self, model_key: str, params: dict) -> SimulationResult:
+        hf_id = MODEL_REGISTRY[model_key]["hf_id"]
+        url = f"http://localhost:{VLLM_PORT}/v1/completions"
+        payload = {
+            "model": hf_id,
+            "prompt": BENCH_PROMPT,
+            "max_tokens": BENCH_MAX_TOKENS,
+            "temperature": 0.0,
+            "n": 1
+        }
+
+        for _ in range(BENCH_WARMUP_REQUESTS):
+            try:
+                requests.post(url, json = payload, timeout = 120)
+            except Exception:
+                pass
+
+        latencies = []
+        tokens_generated = 0
+        t_wall = time.time()
+
+        for _ in range(BENCH_TIMED_REQUESTS):
+            t0 = time.time()
+            try:
+                resp = requests.post(url, json = payload, timeout = 30)
+                elapsed_ms = (time.time() - t0) * 1000
+                latencies.append(elapsed_ms)
+                if resp.ok:
+                    tokens_generated += resp.json().get("usage", {}).get("completion_tokens", BENCH_MAX_TOKENS)
+            except Exception as e:
+                print(f"[vLLM] Request failed: {e}")
+
+        total_s = max(time.time() - t_wall, 0.001)
+
+        if not latencies:
+            return SimulationResult.failure("All benchmark requests failed")
+
+        latencies.sort()
+        p50 = statistics.median(latencies)
+        p99 = latencies[min(int(len(latencies) * 0.99), len(latencies) - 1)]
+        tput = tokens_generated / total_s
+
+        print(f"[vLLM] Benchmark: p50={p50:.0f}ms p99={p99:.0f}ms tput={tput:.1f}tok/s RAM={_ram_used_gb():.2f}GB")
+
+        return SimulationResult(
+            latency_p99_ms = round(p99, 1),
+            latency_p50_ms = round(p50, 1),
+            throughput_tok_per_sec = round(tput, 1),
+            ram_used_gb = _ram_used_gb(),
+            failed = False,
+            config_note = "real vLLM CPU"
+        )
+
+    def stop(self):
+        if self._proc and self._proc.poll() is None:
+            self._proc.terminate()
+            try:
+                self._proc.wait(timeout = 10)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+            print("[vLLM] Stopped.")
+        self._proc = None
+    
+    def is_running(self) -> bool:
+        return self._proc is not None and self._proc.poll() is None
+
+class LatencySimulator:
+    def __init__(self):
+        self._vllm = vLLMProcess()
+        self._active_model: Optional[str] = None
+        self._active_params: dict = {}
+        self.ram_total_gb = _ram_total_gb()
+
+        print(f"[Simulator] Real vLLM CPU mode. System RAM: {self.ram_total_gb:.1f}GB. Available: {_ram_available_gb():.2f}GB. Safety limit: {RAM_SAFETY_LIMIT_GB}GB.")
+
+    def simulate(self, model_key: str, params: dict, changed_param: Optional[str] = None) -> SimulationResult:
+        available = _ram_available_gb()
+        if available < RAM_SAFETY_LIMIT_GB:
+            return SimulationResult.failure(f"Insufficient RAM: only {available:.2f}GB available, need at least {RAM_SAFETY_LIMIT_GB}GB. Try reducing max_model_len.")
+
+        needs_restart = (
+            changed_param is None
+            or changed_param in REQUIRES_RESTART
+            or model_key != self._active_model
+            or not self._vllm.is_running()
+        )
+
+        if needs_restart:
+            print(f"[Simulator] Restarting vLLM (param={changed_param}, model={model_key})")
+            ok = self._vllm.start(model_key, params)
+            if not ok:
+                return SimulationResult.failure(f"vLLM failed to start (model={model_key}, dtype={params.get('dtype')}, max_model_len={params.get('max_model_len')}). Try reducing max_model_len or switching dtype.")
+            self._active_model = model_key
+            self._active_params = params.copy()
+        else:
+            print(f"[Simulator] Reusing vLLM (request-only change: {changed_param})")
+            self._active_params = params.copy()
+
+        return self._vllm.benchmark(model_key, params)
+
+    def stop(self):
+        self._vllm.stop()
+    
+    # def gpu_total(self, *_) -> float:
+    #     return self.ram_total_gb

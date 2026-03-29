@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 from openenv.core.env_server import Action, Observation, State
 
 class ServeAction(Action):
@@ -7,16 +7,17 @@ class ServeAction(Action):
 
 class ServeObservation(Observation):
     model: str
+    model_hf_id: str
     hardware: str
-    num_gpus_available: int
     current_params: dict
-    mean_e2el_ms: float
-    throughput_token_per_sec: float
-    gpu_memory_used_gb: float # VRAM actually utilized
-    gpu_memory_total_gb: float # total GPU VRAM
+    latency_p50_ms: float
+    latency_p99_ms: float
+    throughput_tok_per_sec: float
+    ram_used_gb: float
+    ram_total_gb: float
     task_id: str
     task_description: str
-    target_e2el_ms: float
+    target_latency_ms: float
     target_throughput: float
     steps_remaining: int
     legal_parameters: list
@@ -27,9 +28,9 @@ class ServeObservation(Observation):
 
 class ServeState(State):
     task_id: str = ""
-    best_e2el_ms: float = float('inf')
-    initial_e2el_ms: float = float('inf')
+    best_latency_ms: float = float('inf')
+    initial_latency_ms: float = float('inf')
     best_throughput: float = 0.0
     total_reward: float = 0.0
     target_hit: bool = False
-    oom_count: int = 0
+    failed_starts: int = 0
