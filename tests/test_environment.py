@@ -144,7 +144,7 @@ class TestStep:
 
     def test_episode_ends_on_target_hit(self):
         env, _ = make_env("easy")
-        env._simulator.simulate.return_value = make_mock_result(latency = 400.0)
+        env._simulator.simulate.return_value = make_mock_result(latency = 300.0)
         obs = env.step(ServeAction(parameter = "dtype", value = "float16"))
         assert obs.done is True
         assert env.state.target_hit is True

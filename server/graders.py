@@ -21,7 +21,7 @@ TASK_EASY = TaskConfig(
         "max_num_batched_tokens": 128,
         "max_num_seqs": 1,
     },
-    target_latency_ms = 600.0,
+    target_latency_ms = 340.0,
     target_throughput = 0.0,
     max_steps = 5,
     difficulty = "easy"
@@ -37,8 +37,8 @@ TASK_MEDIUM = TaskConfig(
         "max_num_batched_tokens": 64,
         "max_num_seqs": 1,
     },
-    target_latency_ms = 1000.0,
-    target_throughput = 10.0,
+    target_latency_ms = 460.0,
+    target_throughput = 70.0,
     max_steps = 5,
     difficulty = "medium"
 )
@@ -53,8 +53,8 @@ TASK_HARD = TaskConfig(
         "max_num_batched_tokens": 64,
         "max_num_seqs": 1,
     },
-    target_latency_ms = 1500.0,
-    target_throughput = 5.0,
+    target_latency_ms = 900.0,
+    target_throughput = 45.0,
     max_steps = 5,
     difficulty = "hard"
 )

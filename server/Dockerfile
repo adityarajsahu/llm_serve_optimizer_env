@@ -19,9 +19,17 @@ ENV HOME=/home/user \
 
 WORKDIR $HOME/app
 
-# Install OS deps (curl for health-check probes)
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+# Install OS deps (curl for health-check probes, git and git-lfs to clone models)
+RUN apt-get update && apt-get install -y --no-install-recommends curl git git-lfs \
     && rm -rf /var/lib/apt/lists/*
+
+ARG HF_TOKEN
+RUN mkdir -p $HOME/app/models && cd $HOME/app/models && \
+    git clone https://huggingface.co/openai-community/gpt2 && rm -rf gpt2/.git && \
+    git clone https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct && rm -rf SmolLM2-135M-Instruct/.git && \
+    if [ -n "$HF_TOKEN" ]; then \
+        git clone https://oauth2:${HF_TOKEN}@huggingface.co/google/gemma-3-270m-it gemma-3-270m-it && rm -rf gemma-3-270m-it/.git; \
+    fi
 
 # Install Python deps first (layer-cached unless requirements change)
 COPY requirements.txt /tmp/requirements.txt

@@ -67,12 +67,21 @@ class vLLMProcess:
 
         model_info = MODEL_REGISTRY[model_key]
         hf_id = model_info["hf_id"]
+        
+        # If a local clone exists (e.g., from Docker build), use it instead to avoid cache volumes
+        local_model_name = hf_id.split("/")[-1]
+        local_dir = os.path.join(os.environ.get("HOME", "/home/user"), "app", "models", local_model_name)
+        if os.path.exists(local_dir):
+            serve_id = local_dir
+        else:
+            serve_id = hf_id
+            
         dtype = params.get("dtype", "float32")
         max_len = int(params.get("max_model_len", 192))
 
         cmd = [
             "vllm", "serve",
-            "--model", hf_id,
+            "--model", serve_id,
             "--port", str(VLLM_PORT),
             "--dtype", dtype,
             "--max-model-len", str(max_len)
@@ -117,9 +126,16 @@ class vLLMProcess:
 
     def benchmark(self, model_key: str, params: dict) -> SimulationResult:
         hf_id = MODEL_REGISTRY[model_key]["hf_id"]
+        local_model_name = hf_id.split("/")[-1]
+        local_dir = os.path.join(os.environ.get("HOME", "/home/user"), "app", "models", local_model_name)
+        if os.path.exists(local_dir):
+            serve_id = local_dir
+        else:
+            serve_id = hf_id
+
         url = f"http://localhost:{VLLM_PORT}/v1/completions"
         payload = {
-            "model": hf_id,
+            "model": serve_id,
             "prompt": BENCH_PROMPT,
             "max_tokens": BENCH_MAX_TOKENS,
             "temperature": 0.0,
