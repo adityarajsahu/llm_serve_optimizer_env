@@ -1,0 +1,39 @@
+name: CI/CD to HF Space
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Build Docker Image
+        run: docker build -t llm-serve-optimizer-env .
+
+      - name: Run Container
+        run: docker run --rm -d --name llm-server-optimizer-container -p 7860:7860 llm-serve-optimizer-env
+
+      - name: Run Pytest inside Container
+        run: docker exec llm-server-optimizer-container pytest
+
+      - name: Stop Container
+        if: always()
+        run: docker stop llm-server-optimizer-container
+
+      - name: Push to HF Spaces
+        if: success()
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git config --global user.email "actions@github.com"
+          git config --global user.name "github-actions"
+          git remote add hf https://user:$HF_TOKEN@huggingface.co/spaces/adityarajsahu/llm-serve-optimizer-env
+          git push --force hf main
