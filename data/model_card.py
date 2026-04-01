@@ -53,8 +53,8 @@ REQUEST_ONLY = set()
 # HF Spaces total: 8GB
 # Safe headroom for vLLM: 8 - 3.36 = ~4.6GB available
 # ─────────────────────────────────────────────────────────────
-RAM_SAFETY_LIMIT_GB = 4.0
- 
+RAM_SAFETY_LIMIT_GB = 3.0
+
 # ─────────────────────────────────────────────────────────────
 # vLLM SERVER SETTINGS
 # ─────────────────────────────────────────────────────────────
