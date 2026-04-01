@@ -2,6 +2,15 @@
 # MODEL REGISTRY
 # ─────────────────────────────────────────────────────────────
 MODEL_REGISTRY = {
+    "pythia-70m-deduped": {
+        "hf_id": "EleutherAI/pythia-70m-deduped",
+        "params_b": 0.070,
+        "hf_token": False,
+        "description": "Pythia 70M Deduped — easy task",
+        "ram_weights_gb": 0.14,
+        "startup_s": 5,
+        "supported_dtypes": ["float32", "float16", "bfloat16"],
+    },
     "gpt2": {
         "hf_id": "openai-community/gpt2",
         "params_b": 0.124,
@@ -19,15 +28,6 @@ MODEL_REGISTRY = {
         "ram_weights_gb": 0.27,
         "startup_s": 20,
         "supported_dtypes": ["float32", "float16", "bfloat16"],
-    },
-    "gemma-3-270m": {
-        "hf_id": "google/gemma-3-270m-it",
-        "params_b": 0.270,
-        "hf_token": True,
-        "description": "Gemma-3-270M-IT — hardest task, KV cache is key",
-        "ram_weights_gb": 0.54,
-        "startup_s": 40,
-        "supported_dtypes": ["float32", "bfloat16"],
     },
 }
 

@@ -7,12 +7,11 @@ Use this to verify the simulator and graders work before starting the server.
 Usage
 -----
     python demo.py                           # expert agent on all 3 tasks
-    python demo.py --task easy_gpt2_dtype   # single task
+    python demo.py --task easy               # single task
     python demo.py --random                  # random agent (shows contrast)
 
 NOTE: This will actually start real vLLM processes and run benchmarks.
       Make sure vllm is installed: pip install vllm
-      For Gemma-3: set HF_TOKEN env var first.
 """
 
 import sys

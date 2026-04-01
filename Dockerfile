@@ -23,13 +23,10 @@ WORKDIR $HOME/app
 RUN apt-get update && apt-get install -y --no-install-recommends curl git git-lfs \
     && rm -rf /var/lib/apt/lists/*
 
-ARG HF_TOKEN
 RUN mkdir -p $HOME/app/models && cd $HOME/app/models && \
-    git clone https://huggingface.co/openai-community/gpt2 && rm -rf gpt2/.git && \
-    git clone https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct && rm -rf SmolLM2-135M-Instruct/.git && \
-    if [ -n "$HF_TOKEN" ]; then \
-        git clone https://oauth2:${HF_TOKEN}@huggingface.co/google/gemma-3-270m-it gemma-3-270m-it && rm -rf gemma-3-270m-it/.git; \
-    fi
+    git clone --depth 1 https://huggingface.co/EleutherAI/pythia-70m-deduped && rm -rf pythia-70m-deduped/.git && \
+    git clone --depth 1 https://huggingface.co/openai-community/gpt2 && rm -rf gpt2/.git && \
+    git clone --depth 1 https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct && rm -rf SmolLM2-135M-Instruct/.git
 
 # Install Python deps first (layer-cached unless requirements change)
 COPY requirements.txt /tmp/requirements.txt

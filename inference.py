@@ -4,7 +4,7 @@ inference.py — Mandatory submission inference script.
 Environment variables required:
     API_BASE_URL   LLM API endpoint  (e.g. https://router.huggingface.co/v1)
     MODEL_NAME     Model identifier  (e.g. Qwen/Qwen2.5-1.5B-Instruct)
-    HF_TOKEN       Hugging Face API key (also used by vLLM for Gemma-3)
+    HF_TOKEN       Hugging Face API key
 
     ENV_BASE_URL   OpenEnv server URL (default: http://localhost:7860)
 
@@ -38,8 +38,8 @@ TEMPERATURE = 0.1
 MAX_TOKENS = 100
 TASKS = [
     "easy", 
-    "medium", 
-    "hard"
+    # "medium", 
+    # "hard"
 ]
 
 class ActionResponse(BaseModel):
@@ -62,12 +62,12 @@ SYSTEM_PROMPT = textwrap.dedent("""
 
     Key knowledge for CPU inference:
     - bfloat16 is the BEST dtype for CPU — faster than float32, works on ALL models
-    - float16 works on GPT-2 and SmolLM2 but CRASHES on Gemma-3 (do NOT use float16 with Gemma)
+    - float16 works well on Pythia and GPT-2
     - max_model_len controls KV cache size — THE biggest RAM consumer
       * max_model_len=256 → high RAM usage (risky for larger models)
       * max_model_len=192 → balanced
       * max_model_len=128 → lowest RAM, fastest startup, least context
-    - For Gemma-3-270M: ALWAYS use bfloat16 and reduce max_model_len first to avoid OOM
+    - For SmolLM2-135M: bfloat16 is often best and reduce max_model_len to save RAM
     - Increasing max_num_batched_tokens helps throughput with small latency cost
     - max_num_seqs > 1 increases throughput but may raise per-request p99
     - A vLLM startup failure costs -0.3 reward — avoid OOM configs
@@ -252,22 +252,23 @@ def main() -> None:
 
     total_elapsed = time.time() - t_total
 
-    print(f"\n{'═'*65}")
-    print(f"{'Task':<30} | {'Score':>6} | {'Best p99':>10} | {'Steps':>5} | {'Time':>6}")
-    print(f"{'─'*65}")
+    print(f"\n{'═'*90}")
+    print(f"{'Task':<30} | {'Score':>6} | {'Best p99':>10} | {'Best tput':>10} | {'Steps':>5} | {'Time':>6}")
+    print(f"{'─'*90}")
     for r in results:
         print(
             f"{r['task_id']:<30} | "
             f"{r['final_score']:>6.3f} | "
             f"{r['best_latency_ms']:>7.0f} ms | "
+            f"{r['best_throughput']:>4.0f} tok/s | "
             f"{r['steps_used']:>5} | "
             f"{r['elapsed_s']:>5.1f}s"
         )
-    print(f"{'─'*65}")
+    print(f"{'─'*90}")
     avg = sum(r["final_score"] for r in results) / len(results)
     print(f"{'Average score':<30} | {avg:>6.3f}")
     print(f"{'Total elapsed':<30}   {total_elapsed:.1f}s")
-    print(f"{'═'*65}\n")
+    print(f"{'═'*90}\n")
 
     if avg == 0.0:
         print("[inference.py] ERROR: All scores 0.0 — check server connection.")

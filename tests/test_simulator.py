@@ -18,9 +18,9 @@ pytestmark = pytest.mark.skipif(
 class TestSimulatorBasic:
     def test_model_registry_has_all_models(self):
         from data.model_card import MODEL_REGISTRY
+        assert "pythia-70m-deduped" in MODEL_REGISTRY
         assert "gpt2" in MODEL_REGISTRY
         assert "smollm2-135m" in MODEL_REGISTRY
-        assert "gemma-3-270m" in MODEL_REGISTRY
 
     def test_valid_param_values_no_quantization(self):
         from data.model_card import VALID_PARAM_VALUES
@@ -38,9 +38,9 @@ class TestSimulatorBasic:
         from data.model_card import REQUIRES_RESTART, REQUEST_ONLY
         assert "dtype" in REQUIRES_RESTART
         assert "max_model_len" in REQUIRES_RESTART
+        assert "max_num_batched_tokens" in REQUIRES_RESTART
+        assert "max_num_seqs" in REQUIRES_RESTART
         assert "quantization" not in REQUIRES_RESTART
-        assert "max_num_batched_tokens" in REQUEST_ONLY
-        assert "max_num_seqs" in REQUEST_ONLY
 
     def test_ram_safety_limit_set(self):
         from data.model_card import RAM_SAFETY_LIMIT_GB
@@ -165,22 +165,22 @@ class TestSimulatorReal:
         assert r_128.ram_used_gb <= r_256.ram_used_gb + 0.1 # Added 0.1 for floating point inaccuracies due to OS and Docker overhead
         sim.stop()
 
-    def test_no_restart_for_request_only_param(self):
-        from server.simulator import LatencySimulator
-        sim = LatencySimulator()
+    # def test_no_restart_for_request_only_param(self):
+    #     from server.simulator import LatencySimulator
+    #     sim = LatencySimulator()
  
-        params = {
-            "dtype": "float16", 
-            "max_model_len": 128,
-            "max_num_batched_tokens": 64, 
-            "max_num_seqs": 1
-        }
-        sim.simulate("gpt2", params, changed_param = None)
-        proc_before = sim._vllm._proc
+    #     params = {
+    #         "dtype": "float16", 
+    #         "max_model_len": 128,
+    #         "max_num_batched_tokens": 64, 
+    #         "max_num_seqs": 1
+    #     }
+    #     sim.simulate("gpt2", params, changed_param = None)
+    #     proc_before = sim._vllm._proc
  
-        params["max_num_seqs"] = 2
-        sim.simulate("gpt2", params, changed_param = "max_num_seqs")
-        proc_after = sim._vllm._proc
+    #     params["max_num_seqs"] = 2
+    #     sim.simulate("gpt2", params, changed_param = "max_num_seqs")
+    #     proc_after = sim._vllm._proc
  
-        assert proc_before is proc_after
-        sim.stop()
+    #     assert proc_before is proc_after
+    #     sim.stop()

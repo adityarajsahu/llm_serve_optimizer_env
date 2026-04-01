@@ -18,3 +18,6 @@ Dockerfile
 
 # Environment variables
 .env
+
+# Inference Script
+inference.py
