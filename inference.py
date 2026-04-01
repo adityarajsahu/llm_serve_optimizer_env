@@ -6,7 +6,7 @@ Environment variables required:
     MODEL_NAME     Model identifier  (e.g. Qwen/Qwen2.5-1.5B-Instruct)
     HF_TOKEN       Hugging Face API key (also used by vLLM for Gemma-3)
 
-    ENV_BASE_URL   OpenEnv server URL (default: http://localhost:8000)
+    ENV_BASE_URL   OpenEnv server URL (default: http://localhost:7860)
 
 Usage:
     export API_BASE_URL="https://router.huggingface.co/v1"
@@ -31,7 +31,7 @@ load_dotenv()
 API_BASE_URL = os.getenv("API_BASE_URL")
 API_KEY = os.getenv("HF_TOKEN")
 MODEL_NAME = os.getenv("MODEL_NAME")
-ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:8000")
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
 
 MAX_STEPS_PER_TASK = 5
 TEMPERATURE = 0.1
