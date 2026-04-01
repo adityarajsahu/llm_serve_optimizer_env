@@ -1,3 +1,12 @@
+---
+title: LLM Serve Optimizer Env
+emoji: 🚀
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
 # LLM Serve Optimizer Environment
 
 An **Reinforcement Learning environment** for optimizing LLM deployment configurations to meet target latency and throughput requirements. Built using [OpenEnv](https://huggingface.co/openenv), the environment runs a real [vLLM](https://github.com/vllm-project/vllm) inference server on CPU and benchmarks it after each configuration change — providing an RL agent with real-world performance feedback.
