@@ -38,8 +38,8 @@ TEMPERATURE = 0.1
 MAX_TOKENS = 100
 TASKS = [
     "easy", 
-    # "medium", 
-    # "hard"
+    "medium", 
+    "hard"
 ]
 
 class ActionResponse(BaseModel):
