@@ -17,11 +17,11 @@ TASK_EASY = TaskConfig(
     description = "Deploy GPT-2 (124M) on CPU. Default float32 + max_model_len=256 is slow. Tune dtype and max_model_len to get p99 latency below 600ms. GPT-2 is tiny so RAM is not a concern here — focus on speed. You have 5 steps.",
     initial_params = {
         "dtype": "float32",
-        "max_model_len": 256,
-        "max_num_batched_tokens": 128,
+        "max_model_len": 128,
+        "max_num_batched_tokens": 256,
         "max_num_seqs": 1,
     },
-    target_latency_ms = 340.0,
+    target_latency_ms = 300.0,
     target_throughput = 0.0,
     max_steps = 5,
     difficulty = "easy"
@@ -33,8 +33,8 @@ TASK_MEDIUM = TaskConfig(
     description = "Deploy SmolLM2-135M on CPU for a real-time API. Hit BOTH: p99 latency < 1000ms AND throughput > 10 tok/s. bfloat16 is faster than float32 on modern CPUs. Tuning max_num_batched_tokens helps throughput. You have 5 steps.",
     initial_params = {
         "dtype": "float32",
-        "max_model_len": 256,
-        "max_num_batched_tokens": 64,
+        "max_model_len": 128,
+        "max_num_batched_tokens": 256,
         "max_num_seqs": 1,
     },
     target_latency_ms = 460.0,
@@ -46,11 +46,11 @@ TASK_MEDIUM = TaskConfig(
 TASK_HARD = TaskConfig(
     task_id = "hard",
     model_key = "gemma-3-270m",
-    description = "Deploy Gemma-3-270M on CPU. WARNING: at max_model_len=256 this model may use 3-4GB RAM — reduce max_model_len to 128 or 192 to stay within memory limits. KV cache pre-allocation is the dominant RAM consumer, not weights. Target: p99 < 1500ms AND throughput > 5 tok/s. Requires HF_TOKEN to download. You have 5 steps.",
+    description = "Deploy Gemma-3-270M on CPU. CRITICAL: float16 is NOT supported for Gemma-3 on CPU — use bfloat16 instead. WARNING: at max_model_len=256 this model may use 3-4GB RAM — reduce max_model_len to 128 or 192 to stay within memory limits. KV cache pre-allocation is the dominant RAM consumer, not weights. Target: p99 < 1500ms AND throughput > 5 tok/s. Requires HF_TOKEN to download. You have 5 steps.",
     initial_params = {
         "dtype": "float32",
-        "max_model_len": 256,
-        "max_num_batched_tokens": 64,
+        "max_model_len": 128,
+        "max_num_batched_tokens": 256,
         "max_num_seqs": 1,
     },
     target_latency_ms = 900.0,

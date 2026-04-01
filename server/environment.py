@@ -10,9 +10,19 @@ from server.simulator import LatencySimulator
 from server.graders import TaskGrader, ALL_TASKS
 from data.model_card import VALID_PARAM_VALUES, MODEL_REGISTRY
 
+# Module-level singleton: all WebSocket sessions share one LatencySimulator
+# so the same vLLMProcess tracks the subprocess handle across tasks.
+_shared_simulator = None
+
+def _get_simulator():
+    global _shared_simulator
+    if _shared_simulator is None:
+        _shared_simulator = LatencySimulator()
+    return _shared_simulator
+
 class LLMServeEnvironment(Environment):
     def __init__(self):
-        self._simulator = LatencySimulator()
+        self._simulator = _get_simulator()
         self._grader = TaskGrader()
         self._task = None
         self._current_params = {}
@@ -116,6 +126,14 @@ class LLMServeEnvironment(Environment):
         if value not in legal:
             return f"Invalid value '{value}' for '{param}'. Legal values: {legal}", False
 
+        # Model-specific dtype validation
+        if param == "dtype" and self._task:
+            model_info = MODEL_REGISTRY.get(self._task.model_key, {})
+            supported = model_info.get("supported_dtypes")
+            if supported and value not in supported:
+                return (f"dtype '{value}' is not supported for {self._task.model_key} on CPU. "
+                        f"Supported dtypes: {supported}"), False
+
         old = self._current_params.get(param)
         self._current_params[param] = value
         return f"Set {param} = {value} (was {old})", True
@@ -137,6 +155,10 @@ class LLMServeEnvironment(Environment):
             return True
         
         return False
+
+    def close(self) -> None:
+        """Stop the vLLM subprocess when the WebSocket session ends."""
+        self._simulator.stop()
 
     def _build_observation(self, reward: float, done: bool, feedback: str) -> ServeObservation:
         m = self._current_metrics

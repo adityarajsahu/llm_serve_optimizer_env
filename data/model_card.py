@@ -9,6 +9,7 @@ MODEL_REGISTRY = {
         "description": "GPT-2 Small (124M) — no HF token required",
         "ram_weights_gb": 0.25,
         "startup_s": 10,
+        "supported_dtypes": ["float32", "float16", "bfloat16"],
     },
     "smollm2-135m": {
         "hf_id": "HuggingFaceTB/SmolLM2-135M-Instruct",
@@ -17,6 +18,7 @@ MODEL_REGISTRY = {
         "description": "SmolLM2-135M-Instruct — modern tiny model",
         "ram_weights_gb": 0.27,
         "startup_s": 20,
+        "supported_dtypes": ["float32", "float16", "bfloat16"],
     },
     "gemma-3-270m": {
         "hf_id": "google/gemma-3-270m-it",
@@ -25,6 +27,7 @@ MODEL_REGISTRY = {
         "description": "Gemma-3-270M-IT — hardest task, KV cache is key",
         "ram_weights_gb": 0.54,
         "startup_s": 40,
+        "supported_dtypes": ["float32", "bfloat16"],
     },
 }
 
@@ -41,8 +44,8 @@ VALID_PARAM_VALUES = {
 # ─────────────────────────────────────────────────────────────
 # PARAMETERS THAT REQUIRE A vLLM RESTART vs REQUEST-ONLY CHANGES
 # ─────────────────────────────────────────────────────────────
-REQUIRES_RESTART = {"dtype", "max_model_len"}
-REQUEST_ONLY = {"max_num_batched_tokens", "max_num_seqs"}
+REQUIRES_RESTART = {"dtype", "max_model_len", "max_num_batched_tokens", "max_num_seqs"}
+REQUEST_ONLY = set()
 
 # ─────────────────────────────────────────────────────────────
 # RAM LIMITS

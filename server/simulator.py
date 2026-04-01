@@ -62,8 +62,29 @@ class vLLMProcess:
     def __init__(self):
         self._proc: Optional[subprocess.Popen] = None
 
+    def _kill_port_occupant(self):
+        """Kill any process listening on VLLM_PORT (safety net for orphaned servers)."""
+        try:
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    cmdline = proc.info.get('cmdline') or []
+                    # Look for vllm processes using our port
+                    if any('vllm' in str(c).lower() for c in cmdline) and str(VLLM_PORT) in cmdline:
+                        print(f"[vLLM] Killing orphaned vLLM process {proc.pid} on port {VLLM_PORT}")
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=5)
+                        except psutil.TimeoutExpired:
+                            proc.kill()
+                        time.sleep(1)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except Exception as e:
+            print(f"[vLLM] Warning: port cleanup failed: {e}")
+
     def start(self, model_key: str, params: dict) -> bool:
         self.stop()
+        self._kill_port_occupant()
 
         model_info = MODEL_REGISTRY[model_key]
         hf_id = model_info["hf_id"]
@@ -86,6 +107,11 @@ class vLLMProcess:
             "--dtype", dtype,
             "--max-model-len", str(max_len)
         ]
+
+        if "max_num_batched_tokens" in params:
+            cmd.extend(["--max-num-batched-tokens", str(params["max_num_batched_tokens"])])
+        if "max_num_seqs" in params:
+            cmd.extend(["--max-num-seqs", str(params["max_num_seqs"])])
 
         hf_token = os.environ.get("HF_TOKEN", "")
         if model_info["hf_token"] and hf_token:
@@ -157,9 +183,11 @@ class vLLMProcess:
             try:
                 resp = requests.post(url, json = payload, timeout = 30)
                 elapsed_ms = (time.time() - t0) * 1000
-                latencies.append(elapsed_ms)
                 if resp.ok:
+                    latencies.append(elapsed_ms)
                     tokens_generated += resp.json().get("usage", {}).get("completion_tokens", BENCH_MAX_TOKENS)
+                else:
+                    print(f"[vLLM] Request returned {resp.status_code}: {resp.text[:200]}")
             except Exception as e:
                 print(f"[vLLM] Request failed: {e}")
 

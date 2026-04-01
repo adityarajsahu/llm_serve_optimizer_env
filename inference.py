@@ -24,6 +24,9 @@ import time
 from pydantic import BaseModel
 
 from openai import OpenAI
+from dotenv import load_dotenv
+
+load_dotenv()
 
 API_BASE_URL = os.getenv("API_BASE_URL")
 API_KEY = os.getenv("HF_TOKEN")
@@ -31,13 +34,17 @@ MODEL_NAME = os.getenv("MODEL_NAME")
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:8000")
 
 MAX_STEPS_PER_TASK = 5
-TEMPERATURE = 0.0
+TEMPERATURE = 0.1
 MAX_TOKENS = 100
-TASKS = ["easy", "medium", "hard"]
+TASKS = [
+    "easy", 
+    "medium", 
+    "hard"
+]
 
 class ActionResponse(BaseModel):
     parameter: str
-    value: str | int | float
+    value: str | int
 
 SYSTEM_PROMPT = textwrap.dedent("""
     You are an expert MLOps engineer optimizing LLM deployments using vLLM on CPU.
@@ -47,19 +54,20 @@ SYSTEM_PROMPT = textwrap.dedent("""
     Respond ONLY with a JSON object — no explanation, no markdown:
     {"parameter": "<param_name>", "value": <value>}
 
-    Valid parameters and their allowed values:
-    - dtype                  : "float32", "float16", "bfloat16"
-    - max_model_len          : 128, 192, 256
-    - max_num_batched_tokens : 64, 128, 256, 512
-    - max_num_seqs           : 1, 2, 4, 8
+    Valid parameters and their allowed values: 
+    dtype                  : "float32", "float16", "bfloat16"
+    max_model_len          : 128, 192, 256
+    max_num_batched_tokens : 64, 128, 256, 512
+    max_num_seqs           : 1, 2, 4, 8
 
     Key knowledge for CPU inference:
-    - float16 and bfloat16 are significantly faster than float32 on modern CPUs
+    - bfloat16 is the BEST dtype for CPU — faster than float32, works on ALL models
+    - float16 works on GPT-2 and SmolLM2 but CRASHES on Gemma-3 (do NOT use float16 with Gemma)
     - max_model_len controls KV cache size — THE biggest RAM consumer
       * max_model_len=256 → high RAM usage (risky for larger models)
       * max_model_len=192 → balanced
       * max_model_len=128 → lowest RAM, fastest startup, least context
-    - For Gemma-3-270M: ALWAYS reduce max_model_len first to avoid OOM
+    - For Gemma-3-270M: ALWAYS use bfloat16 and reduce max_model_len first to avoid OOM
     - Increasing max_num_batched_tokens helps throughput with small latency cost
     - max_num_seqs > 1 increases throughput but may raise per-request p99
     - A vLLM startup failure costs -0.3 reward — avoid OOM configs
@@ -112,8 +120,8 @@ def build_user_prompt(obs, step: int, history: list[str]) -> str:
 
 
 def run_task(task_id: str, llm_client: OpenAI) -> dict:
-    from client import LLMDeployEnv
-    from models import DeployAction
+    from client import LLMServeEnv
+    from models import ServeAction
 
     history: list[str] = []
     t_start = time.time()
@@ -122,7 +130,7 @@ def run_task(task_id: str, llm_client: OpenAI) -> dict:
     print(f"TASK : {task_id}")
     print(f"{'='*60}")
 
-    with LLMDeployEnv(base_url = ENV_BASE_URL).sync() as env:
+    with LLMServeEnv(base_url = ENV_BASE_URL, message_timeout_s = 600.0).sync() as env:
         result = env.reset(task_id = task_id)
         obs = result.observation
         step = 0
@@ -140,7 +148,7 @@ def run_task(task_id: str, llm_client: OpenAI) -> dict:
             step += 1
 
             try:
-                completion = llm_client.beta.chat.completions.parse(
+                completion = llm_client.chat.completions.create(
                     model = MODEL_NAME,
                     messages = [
                         {"role": "system", "content": SYSTEM_PROMPT},
@@ -148,20 +156,28 @@ def run_task(task_id: str, llm_client: OpenAI) -> dict:
                     ],
                     temperature = TEMPERATURE,
                     max_tokens = MAX_TOKENS,
-                    response_format = ActionResponse
+                    response_format={"type": "json_object"}
                 )
-                action_parsed = completion.choices[0].message.parsed
+                raw_content = completion.choices[0].message.content
+                json_content = json.loads(raw_content)
+                # match = re.search(r'\{.*\}', raw_content.replace('\n', ''), re.DOTALL)
+                # if not match:
+                #     print(f"  [Step {step}] Failed to find JSON in LLM output — skipping")
+                #     continue
+                # action_parsed = ActionResponse.model_validate_json(match.group(0))
             except Exception as exc:
                 print(f"  [Step {step}] LLM error: {exc} — skipping")
+                import traceback
+                traceback.print_exc()
                 continue
 
-            if not action_parsed or not action_parsed.parameter:
-                print(f"  [Step {step}] Bad JSON output — skipping")
-                continue
+            # if not action_parsed or not action_parsed.parameter:
+            #     print(f"  [Step {step}] Bad JSON output — skipping")
+            #     continue
 
-            action = DeployAction(
-                parameter = action_parsed.parameter,
-                value = action_parsed.value,
+            action = ServeAction(
+                parameter = json_content["parameter"],
+                value = json_content["value"],
             )
 
             result = env.step(action)
@@ -172,12 +188,14 @@ def run_task(task_id: str, llm_client: OpenAI) -> dict:
                 f"  Step {step:2d} {icon}  "
                 f"{action.parameter:<25} = {str(action.value):<10}  "
                 f"p99={obs.latency_p99_ms:7.0f}ms  "
+                f"tput={obs.throughput_tok_per_sec:7.1f}tok/s  "
                 f"RAM={obs.ram_used_gb:.2f}GB  "
                 f"reward={result.reward:+.3f}"
             )
             history.append(
                 f"Step {step}: {action.parameter}={action.value} → "
                 f"p99={obs.latency_p99_ms:.0f}ms "
+                f"tput={obs.throughput_tok_per_sec:.1f}tok/s "
                 f"RAM={obs.ram_used_gb:.2f}GB "
                 f"reward={result.reward:+.3f}"
             )
@@ -225,7 +243,7 @@ def main() -> None:
     print(f"[inference.py] ENV_BASE_URL : {ENV_BASE_URL}")
     print(f"[inference.py] HF_TOKEN     : {'set ✓' if API_KEY else 'NOT SET ✗'}")
 
-    llm_client  = OpenAI(base_url = API_BASE_URL, api_key = API_KEY)
+    llm_client  = OpenAI(base_url = API_BASE_URL, api_key = API_KEY or "EMPTY")
     results = []
     t_total = time.time()
 
