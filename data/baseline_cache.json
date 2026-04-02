@@ -1,0 +1,44 @@
+{
+    "easy": {
+        "model_key": "pythia-70m-deduped",
+        "params": {
+            "dtype": "float32",
+            "max_model_len": 128,
+            "max_num_batched_tokens": 256,
+            "max_num_seqs": 1
+        },
+        "latency_p99_ms": 789.0,
+        "latency_p50_ms": 318.0,
+        "throughput_tok_per_sec": 44.3,
+        "ram_used_gb": 93.18,
+        "failed": false
+    },
+    "medium": {
+        "model_key": "gpt2",
+        "params": {
+            "dtype": "float32",
+            "max_model_len": 128,
+            "max_num_batched_tokens": 256,
+            "max_num_seqs": 1
+        },
+        "latency_p99_ms": 2017.0,
+        "latency_p50_ms": 807.6,
+        "throughput_tok_per_sec": 17.2,
+        "ram_used_gb": 92.06,
+        "failed": false
+    },
+    "hard": {
+        "model_key": "smollm2-135m",
+        "params": {
+            "dtype": "float32",
+            "max_model_len": 128,
+            "max_num_batched_tokens": 256,
+            "max_num_seqs": 1
+        },
+        "latency_p99_ms": 2610.2,
+        "latency_p50_ms": 992.4,
+        "throughput_tok_per_sec": 12.6,
+        "ram_used_gb": 92.67,
+        "failed": false
+    }
+}

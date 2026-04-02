@@ -1,3 +1,4 @@
+import json
 import os
 import time
 import subprocess
@@ -5,6 +6,22 @@ import statistics
 import psutil
 import requests
 from typing import Optional
+
+_BASELINE_CACHE_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "baseline_cache.json")
+
+def _load_baseline_cache() -> dict:
+    try:
+        with open(_BASELINE_CACHE_PATH) as f:
+            data = json.load(f)
+        return {k: v for k, v in data.items() if not k.startswith("_")}
+    except FileNotFoundError:
+        print(f"[Simulator] WARNING: No baseline cache found at {_BASELINE_CACHE_PATH}. "
+              "reset() will run full vLLM benchmarks (slow). "
+              "Run server/generate_baseline_cache.py to fix this.")
+        return {}
+    except Exception as e:
+        print(f"[Simulator] WARNING: Failed to load baseline cache: {e}")
+        return {}
 
 from data.model_card import (
     MODEL_REGISTRY, 
@@ -231,13 +248,46 @@ class LatencySimulator:
         self._active_model: Optional[str] = None
         self._active_params: dict = {}
         self.ram_total_gb = _ram_total_gb()
+        self._baseline_cache: dict = _load_baseline_cache()
 
-        print(f"[Simulator] Real vLLM CPU mode. System RAM: {self.ram_total_gb:.1f}GB. Available: {_ram_available_gb():.2f}GB. Safety limit: {RAM_SAFETY_LIMIT_GB}GB.")
+        n_cached = len(self._baseline_cache)
+        print(
+            f"[Simulator] Real vLLM CPU mode. "
+            f"System RAM: {self.ram_total_gb:.1f}GB. "
+            f"Available: {_ram_available_gb():.2f}GB. "
+            f"Safety limit: {RAM_SAFETY_LIMIT_GB}GB. "
+            f"Baseline cache: {n_cached} task(s) pre-loaded."
+        )
 
     def simulate(self, model_key: str, params: dict, changed_param: Optional[str] = None) -> SimulationResult:
+        if changed_param is None:
+            for task_id, entry in self._baseline_cache.items():
+                if (
+                    entry.get("model_key") == model_key
+                    and entry.get("params") == params
+                ):
+                    print(
+                        f"[Simulator] reset endpoint HIT for {model_key} baseline (task={task_id})."
+                    )
+                    return SimulationResult(
+                        latency_p99_ms = entry["latency_p99_ms"],
+                        latency_p50_ms = entry["latency_p50_ms"],
+                        throughput_tok_per_sec = entry["throughput_tok_per_sec"],
+                        ram_used_gb = entry["ram_used_gb"],
+                        failed = entry["failed"],
+                        config_note = "baseline_cache",
+                    )
+            print(
+                f"[Simulator] Cache MISS for {model_key} baseline "
+                "(params not in cache). Running full vLLM benchmark."
+            )
+
         available = _ram_available_gb()
         if available < RAM_SAFETY_LIMIT_GB:
-            return SimulationResult.failure(f"Insufficient RAM: only {available:.2f}GB available, need at least {RAM_SAFETY_LIMIT_GB}GB. Try reducing max_model_len.")
+            return SimulationResult.failure(
+                f"Insufficient RAM: only {available:.2f}GB available, "
+                f"need at least {RAM_SAFETY_LIMIT_GB}GB. Try reducing max_model_len."
+            )
 
         needs_restart = (
             changed_param is None
@@ -250,7 +300,12 @@ class LatencySimulator:
             print(f"[Simulator] Restarting vLLM (param={changed_param}, model={model_key})")
             ok = self._vllm.start(model_key, params)
             if not ok:
-                return SimulationResult.failure(f"vLLM failed to start (model={model_key}, dtype={params.get('dtype')}, max_model_len={params.get('max_model_len')}). Try reducing max_model_len or switching dtype.")
+                return SimulationResult.failure(
+                    f"vLLM failed to start (model={model_key}, "
+                    f"dtype={params.get('dtype')}, "
+                    f"max_model_len={params.get('max_model_len')}). "
+                    "Try reducing max_model_len or switching dtype."
+                )
             self._active_model = model_key
             self._active_params = params.copy()
         else:

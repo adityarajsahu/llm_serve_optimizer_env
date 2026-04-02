@@ -109,20 +109,20 @@ class TestSimulatorReal:
             "max_num_batched_tokens": 64, 
             "max_num_seqs": 1
         }
- 
-        r_fp32 = sim.simulate(
-            "gpt2", {
-                **params_base, 
-                "dtype": "float32"
-            }, 
-            changed_param = None
-        )
 
         r_fp16 = sim.simulate(
             "gpt2", 
             {
                 **params_base, 
                 "dtype": "float16"
+            }, 
+            changed_param = "dtype"
+        )
+ 
+        r_fp32 = sim.simulate(
+            "gpt2", {
+                **params_base, 
+                "dtype": "float32"
             }, 
             changed_param = "dtype"
         )
@@ -141,21 +141,21 @@ class TestSimulatorReal:
             "max_num_batched_tokens": 64, 
             "max_num_seqs": 1
         }
- 
-        r_256 = sim.simulate(
-            "gpt2", 
-            {
-                **params_base, 
-                "max_model_len": 256
-            }, 
-            changed_param = None
-        )
 
         r_128 = sim.simulate(
             "gpt2", 
             {
                 **params_base, 
                 "max_model_len": 128
+            }, 
+            changed_param = "max_model_len"
+        )
+
+        r_256 = sim.simulate(
+            "gpt2", 
+            {
+                **params_base, 
+                "max_model_len": 256
             }, 
             changed_param = "max_model_len"
         )
