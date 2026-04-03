@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Support Scripts
+inference_2.py
+server/generate_baseline_cache.py
+pre_validation_script.sh
+demo_inference.py

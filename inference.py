@@ -32,9 +32,9 @@ STDOUT FORMAT
     - All fields on a single line with no newlines within a line.
 
   Example:
-    [START] task=easy env=llm-serve-optimizer model=Qwen/Qwen2.5-72B-Instruct
-    [STEP] step=1 action=dtype=bfloat16 reward=0.10 done=false error=null
-    [STEP] step=2 action=max_model_len=128 reward=0.30 done=false error=null
+    [START] task=easy env=llm-serve-optimizer model=llama-3.3-70b-versatile
+    [STEP] step=1 action=dtype:bfloat16 reward=0.10 done=false error=null
+    [STEP] step=2 action=max_model_len:128 reward=0.30 done=false error=null
     [END] success=true steps=2 rewards=0.10,0.30
 """
 
@@ -44,9 +44,11 @@ import sys
 import textwrap
 import time
 from typing import List, Optional
-
 from dotenv import load_dotenv
 from openai import OpenAI
+
+from client import LLMServeEnv
+from models import ServeAction
 
 load_dotenv()
 
@@ -56,7 +58,7 @@ API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 
 ENV_BASE_URL = os.getenv(
     "ENV_BASE_URL",
-    "http://localhost:7860",
+    "https://adityarajsahu-llm-serve-optimizer-env.hf.space",
 )
 
 BENCHMARK = "llm-serve-optimizer"
@@ -152,9 +154,6 @@ def build_user_prompt(obs, step: int, history: List[str]) -> str:
     return "\n".join(lines)
 
 def run_task(task_id: str, llm_client: OpenAI) -> dict:
-    from client import LLMServeEnv
-    from models import ServeAction
-
     history: List[str] = []
     rewards: List[float] = []
     steps_taken = 0
@@ -193,7 +192,6 @@ def run_task(task_id: str, llm_client: OpenAI) -> dict:
                     action = ServeAction(parameter=param, value=value)
                 except Exception as exc:
                     error_msg = str(exc)
-                    print(f"[DEBUG] LLM error at step {step}: {exc}", flush=True, file=sys.stderr)
                     log_step(step=step, action="null", reward=0.0, done=False, error=error_msg)
                     rewards.append(0.0)
                     steps_taken = step
@@ -219,8 +217,7 @@ def run_task(task_id: str, llm_client: OpenAI) -> dict:
                     f"reward={reward:+.3f}"
                 )
 
-                log_step(step=step, action=action_str, reward=reward,
-                         done=done, error=error_msg)
+                log_step(step=step, action=action_str, reward=reward, done=done, error=error_msg)
 
                 if done:
                     break
@@ -239,7 +236,6 @@ def run_task(task_id: str, llm_client: OpenAI) -> dict:
             success = final_score >= SUCCESS_THRESHOLD
 
     except Exception as exc:
-        # print(f"[DEBUG] Task '{task_id}' aborted: {exc}", flush=True, file=sys.stderr)
         final_score = 0.0
 
     finally:
@@ -253,46 +249,17 @@ def run_task(task_id: str, llm_client: OpenAI) -> dict:
     }
 
 def main() -> None:
-    missing = [v for v in ("API_BASE_URL", "MODEL_NAME", "HF_TOKEN") if not os.getenv(v)]
-    # if missing:
-    #     print(f"[inference.py] WARNING: Missing env vars: {', '.join(missing)}", flush=True)
-
-    # print(f"[inference.py] API_BASE_URL : {API_BASE_URL}",                       flush=True)
-    # print(f"[inference.py] MODEL_NAME   : {MODEL_NAME}",                         flush=True)
-    # print(f"[inference.py] ENV_BASE_URL : {ENV_BASE_URL}",                       flush=True)
-    # print(f"[inference.py] HF_TOKEN     : {'set ✓' if API_KEY else 'NOT SET ✗'}", flush=True)
-
-    llm_client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY or "EMPTY")
-    results    = []
-    t_total    = time.time()
+    llm_client = OpenAI(
+        base_url = API_BASE_URL, 
+        api_key = API_KEY or "EMPTY"
+    )
+    results = []
+    t_total = time.time()
 
     for task_id in TASKS:
         results.append(run_task(task_id, llm_client))
 
     total_elapsed = time.time() - t_total
-
-    # # ── Summary table (informational, not part of the mandatory format) ────────
-    # print(f"\n{'═'*70}", flush=True)
-    # print(f"{'Task':<20} | {'Score':>6} | {'Steps':>5} | {'Rewards'}", flush=True)
-    # print(f"{'─'*70}", flush=True)
-    # for r in results:
-    #     rewards_str = ",".join(f"{x:.2f}" for x in r["rewards"])
-    #     print(
-    #         f"{r['task_id']:<20} | "
-    #         f"{r['final_score']:>6.3f} | "
-    #         f"{r['steps_used']:>5} | "
-    #         f"{rewards_str}",
-    #         flush=True,
-    #     )
-    # print(f"{'─'*70}", flush=True)
-    # avg = sum(r["final_score"] for r in results) / len(results) if results else 0.0
-    # print(f"{'Average score':<20} | {avg:>6.3f}", flush=True)
-    # print(f"Total elapsed: {total_elapsed:.1f}s", flush=True)
-    # print(f"{'═'*70}\n",  flush=True)
-
-    # if avg == 0.0:
-    #     print("[inference.py] ERROR: All scores 0.0 — check server connection.", flush=True)
-    #     sys.exit(1)
 
 
 if __name__ == "__main__":

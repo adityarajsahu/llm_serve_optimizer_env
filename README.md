@@ -9,7 +9,9 @@ pinned: false
 
 # LLM Serve Optimizer Environment
 
-An **Reinforcement Learning environment** for optimizing LLM deployment configurations to meet target latency and throughput requirements. Built using [OpenEnv](https://huggingface.co/openenv), the environment runs a real [vLLM](https://github.com/vllm-project/vllm) inference server on CPU and benchmarks it after each configuration change — providing an RL agent with real-world performance feedback.
+An **Reinforcement Learning environment** for optimizing LLM deployment configurations to meet target latency and throughput requirements. Built using [OpenEnv](https://github.com/meta-pytorch/OpenEnv), the environment runs [vLLM](https://github.com/vllm-project/vllm) inference server and benchmarks it after each configuration change — providing an RL agent with real-world performance feedback.
+
+The environment is **platform and hardware agnostic** — it can run on CPU, GPU, and AI accelerators such as Google TPU, with vLLM transparently handling the backend. The reference deployment targets CPU-only hardware (HF Spaces free tier), but the same environment and agent script work without modification on any hardware vLLM supports.
 
 ---
 
@@ -30,7 +32,7 @@ The environment server is a FastAPI/WebSocket application built with OpenEnv. Cl
 
 ## Supported Models
 
-Due to CPU-only hardware constraints (HF Spaces: 2 vCPU, ~8 GB RAM), only very small models are supported. All three models are publicly available on Hugging Face and require no HF token:
+The environment supports any model that vLLM can serve. The three pre-configured models are deliberately small to stay within the reference deployment's resource limits (HF Spaces: 2 vCPU, ~8 GB RAM). All three are publicly available on Hugging Face and require no HF token. On GPU or TPU hardware, larger models can be used by extending the model registry in `data/model_card.py`.
 
 | Model                     | HF ID                                 | Parameters | Task     |
 | ------------------------- | ------------------------------------- | ---------- | -------- |
@@ -47,7 +49,6 @@ The environment defines three tasks of increasing difficulty. Each task specifie
 ### Easy — Pythia-70M-Deduped
 
 - **Goal:** Get p99 latency ≤ **150 ms**
-- **Throughput target:** None
 - **Steps:** 5
 
 ### Medium — GPT-2 (124M)
@@ -131,29 +132,39 @@ An **invalid action** (unknown parameter or out-of-range value) incurs a small p
 ```
 llm_serve_optimizer_env/
 ├── server/
-│   ├── app.py            # FastAPI app entry point (OpenEnv server)
-│   ├── environment.py    # Core RL environment logic (reset, step, state)
-│   ├── simulator.py      # vLLM process lifecycle + real benchmarking
-│   └── graders.py        # Task definitions, reward functions, final scoring
+│   ├── app.py                    # FastAPI app entry point (OpenEnv server)
+│   ├── environment.py            # Core RL environment logic (reset, step, state)
+│   ├── simulator.py              # vLLM process lifecycle + real benchmarking
+│   ├── graders.py                # Task definitions, reward functions, final scoring
 ├── data/
-│   └── model_card.py     # Model registry & valid parameter values
-├── client.py             # OpenEnv WebSocket client for the environment
-├── models.py             # Pydantic models: Action, Observation, State
-├── inference.py          # LLM agent script (mandatory submission entry point)
-├── demo.py               # Demo/debug script
-├── openenv.yaml          # OpenEnv deployment config
-├── Dockerfile            # CPU-only Docker image (HF Spaces compatible)
-└── requirements.txt      # Python dependencies
+│   ├── model_card.py             # Model registry & valid parameter values
+│   └── baseline_cache.json       # Pre-computed baseline metrics for each task
+├── tests/
+│   ├── test_environment.py       # Unit tests for the RL environment logic
+│   └── test_simulator.py         # Unit tests for the vLLM simulator
+├── client.py                     # OpenEnv WebSocket client for the environment
+├── models.py                     # Pydantic models: Action, Observation, State
+├── inference.py                  # LLM agent script (mandatory submission entry point)
+├── openenv.yaml                  # OpenEnv deployment config
+├── pyproject.toml                # Python project metadata
+├── Dockerfile                    # Docker image (HF Spaces compatible)
+└── requirements.txt              # Python dependencies
 ```
 
 ---
 
 ## How the Benchmark Works
 
+### Episode Start (`reset`)
+
+Since baseline metrics for each task's default configuration are deterministic (same model, same initial params, same hardware), they are **pre-computed and saved** to `data/baseline_cache.json` to avoid redundant compute on every episode start. The `reset()` endpoint returns the cached baseline instantly, allowing the agent to begin tuning immediately.
+
+### Each Step (`step`)
+
 When the agent sends an action:
 
 1. **Parameter validation** — illegal parameter or value gives `-0.05` reward.
-2. **vLLM restart** (if needed) — practically all parameters require a restart. The environment manages the subprocess, waits for the `/health` endpoint, and times out after 180 s.
+2. **vLLM restart** — practically all parameters require a restart. The environment manages the subprocess, waits for the `/health` endpoint, and times out after 180 s.
 3. **Warmup** — 2 warmup requests are sent to prime the server.
 4. **Timed benchmark** — 5 requests are sent; p50/p99 latency and tokens/s throughput are measured from real HTTP round-trips.
 5. **Reward computation** — scores are computed against task targets and returned to the agent.
@@ -172,44 +183,34 @@ The script reads credentials from a `.env` file in the project root. Create one 
 
 ```dotenv
 # LLM API endpoint (used for the agent's reasoning)
-API_BASE_URL=https://api.groq.com/openai/v1
+API_BASE_URL= ... # https://api.groq.com/openai/v1
 
 # Model to use for agent decisions
-MODEL_NAME=llama-3.3-70b-versatile
+MODEL_NAME= ... # llama-3.3-70b-versatile
 
 # API Key for the LLM provider (Groq API key in this case)
-HF_TOKEN=<your_groq_api_key_here>
+HF_TOKEN= ... # <groq_api_key_in_my_case>
 ```
 
-> **Note:** The project uses the [Groq API](https://console.groq.com/) with the `llama-3.3-70b-versatile` model for agent inference. The `HF_TOKEN` variable name is kept for compatibility with the submission spec, but its value should be your Groq API key.
+> **Note:** The project uses the [Groq API](https://groq.com/) with the `llama-3.3-70b-versatile` model for agent inference. The `HF_TOKEN` must the the API Key for the LLM provider being used.
 
-### Running
+### Running Inference
 
 ```bash
-# Install dependencies (if not in Docker)
+# Install OpenEnv environment dependencies
 pip install -r requirements.txt
 
 # Run the agent against the 'easy' task
 python inference.py
 ```
 
-The script will print a step-by-step table of actions, metrics, and rewards, and a summary at the end.
-
-By default, only the `easy` task is enabled. To run `medium` or `hard`, uncomment the relevant lines in `inference.py`:
-
-```python
-TASKS = [
-    "easy",
-    "medium",
-    "hard"
-]
-```
+The script will print structured `[START]`, `[STEP]`, and `[END]` log lines for each task — the mandatory format required by the OpenEnv submission spec — followed by a summary table.
 
 ---
 
 ## Docker — Building and Running Locally
 
-The Dockerfile builds a CPU-only image based on `vllm/vllm-openai-cpu`. During the build, all three supported models are cloned locally so no internet access is needed at runtime.
+The Dockerfile builds a CPU-only image based on `vllm/vllm-openai-cpu`. During the build, all three supported models are cloned locally to reduce runtime latency.
 
 > ⚠️ The build step downloads ~700 MB of model weights. It may take several minutes.
 
@@ -247,8 +248,9 @@ docker stop llm-serve-optimizer-env-container
 
 ## Environment Details
 
-- **Framework:** [OpenEnv](https://huggingface.co/openenv) — WebSocket-based RL environment server built on FastAPI
-- **Inference backend:** [vLLM](https://github.com/vllm-project/vllm) running in CPU-only mode
-- **Hardware target:** HF Spaces free tier (2 vCPU, 8 GB RAM)
+- **Framework:** [OpenEnv](https://github.com/meta-pytorch/OpenEnv) — WebSocket-based RL environment server built on FastAPI
+- **Inference backend:** [vLLM](https://github.com/vllm-project/vllm) — hardware agnostic; runs on CPU, GPU, and AI accelerators (e.g. Google TPU) without environment code changes
+- **Reference deployment:** HF Spaces free tier (2 vCPU, 8 GB RAM, CPU-only)
 - **Agent LLM:** Groq API — `llama-3.3-70b-versatile`
 - **Port:** `7860` (default OpenEnv / HF Spaces port)
+- **CI/CD:** GitHub Actions — runs pytest inside Docker on every push to `main`; deploys to HF Spaces only if all tests pass
