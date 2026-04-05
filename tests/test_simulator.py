@@ -129,7 +129,7 @@ class TestSimulatorReal:
  
         assert not r_fp32.failed
         assert not r_fp16.failed
-        assert r_fp16.latency_p99_ms < r_fp32.latency_p99_ms + 150 # Added 150ms for floating point inaccuracies due to OS and Docker overhead
+        assert r_fp16.latency_p99_ms < r_fp32.latency_p99_ms * 1.25 # Added 25% for inaccuracies due to multiple services running on shared hardware of HF Spaces free-tier
         sim.stop()
 
     def test_smaller_max_model_len_uses_less_ram(self):
@@ -162,7 +162,7 @@ class TestSimulatorReal:
  
         assert not r_256.failed
         assert not r_128.failed
-        assert r_128.ram_used_gb <= r_256.ram_used_gb + 0.1 # Added 0.1 for floating point inaccuracies due to OS and Docker overhead
+        assert r_128.ram_used_gb <= r_256.ram_used_gb + 0.1 # Added 0.1 for inaccuracies due to multiple services running on shared hardware of HF Spaces free-tier
         sim.stop()
 
     # def test_no_restart_for_request_only_param(self):
