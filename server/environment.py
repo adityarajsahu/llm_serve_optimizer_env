@@ -1,14 +1,16 @@
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 from uuid import uuid4
 from openenv.core.env_server.interfaces import Environment
 
-from models import ServeAction, ServeObservation, ServeState
-from server.simulator import LatencySimulator
-from server.graders import TaskGrader, ALL_TASKS
-from data.model_card import VALID_PARAM_VALUES, MODEL_REGISTRY
+try:
+    from ..models import ServeAction, ServeObservation, ServeState
+    from .simulator import LatencySimulator
+    from .graders import TaskGrader, ALL_TASKS
+    from ..data.model_card import VALID_PARAM_VALUES, MODEL_REGISTRY
+except ImportError:
+    from models import ServeAction, ServeObservation, ServeState
+    from server.simulator import LatencySimulator
+    from server.graders import TaskGrader, ALL_TASKS
+    from data.model_card import VALID_PARAM_VALUES, MODEL_REGISTRY
 
 # Module-level singleton: all WebSocket sessions share one LatencySimulator
 # so the same vLLMProcess tracks the subprocess handle across tasks.

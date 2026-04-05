@@ -1,7 +1,10 @@
-from openenv.core.env_client import EnvClient
+from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
 
-from models import ServeAction, ServeObservation, ServeState
+try:
+    from .models import ServeAction, ServeObservation, ServeState
+except ImportError:
+    from models import ServeAction, ServeObservation, ServeState
 
 class LLMServeEnv(EnvClient[ServeAction, ServeObservation, ServeState]):
     def _step_payload(self, action: ServeAction) -> dict:

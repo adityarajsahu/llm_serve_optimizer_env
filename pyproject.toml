@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "llm-serve-optimizer-env"
@@ -17,9 +17,21 @@ dependencies = [
     "pydantic==2.12.5",
     "python-dotenv==1.2.2",
     "requests==2.32.5",
-    "psutil==7.2.2",
+    "psutil==7.2.2"
+]
+
+[project.optional-dependencies]
+dev = [
     "pytest==9.0.2"
 ]
 
 [project.scripts]
-server = "server.app:main"
+server = "llm_serve_optimizer_env.server.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = [".", "server", "data"]
+
+[dependency-groups]
+dev = [
+    "pytest==9.0.2"
+]

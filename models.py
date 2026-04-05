@@ -1,5 +1,5 @@
 from typing import Any
-from openenv.core.env_server import Action, Observation, State
+from openenv.core.env_server.types import Action, Observation, State
 
 class ServeAction(Action):
     parameter: str

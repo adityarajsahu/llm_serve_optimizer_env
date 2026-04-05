@@ -192,9 +192,9 @@ llm_serve_optimizer_env/
 ├── models.py                     # Pydantic models: Action, Observation, State
 ├── inference.py                  # LLM agent script (mandatory submission entry point)
 ├── openenv.yaml                  # OpenEnv deployment config
-├── pyproject.toml                # Python project metadata
+├── pyproject.toml                # Python project metadata & dependencies (uv-managed)
+├── uv.lock                       # Locked dependency tree (committed, reproducible installs)
 ├── Dockerfile                    # Docker image (HF Spaces compatible)
-└── requirements.txt              # Python dependencies
 ```
 
 ---
@@ -254,12 +254,18 @@ HF_TOKEN= ... # <groq_api_key_in_my_case>
 ### Running Inference
 
 ```bash
-# Install OpenEnv environment dependencies
-pip install -r requirements.txt
+# 1. Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env   # or restart your shell
 
-# Run the agent against all four tasks
-python inference.py
+# 2. Create the virtual environment and install all dependencies
+uv sync
+
+# 3. Run the agent against all four tasks
+uv run python inference.py
 ```
+
+> **Tip:** After `uv sync`, you can also activate the environment manually with `source .venv/bin/activate` and use `python inference.py` directly. To add a new dependency: `uv add <package>`.
 
 The script runs all four tasks in sequence (`easy_pythia_p99`, `medium_gpt2_p99_tput`, `hard_smollm2_stricter_p99_tput`, `extreme_pythia_p99_tput_ram_optimize`) and prints structured `[START]`, `[STEP]`, and `[END]` log lines for each — the mandatory format required by the OpenEnv submission spec — followed by a summary table.
 

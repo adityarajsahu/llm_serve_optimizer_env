@@ -1172,11 +1172,20 @@ dependencies = [
     { name = "openenv-core" },
     { name = "psutil" },
     { name = "pydantic" },
-    { name = "pytest" },
     { name = "python-dotenv" },
     { name = "requests" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "websockets" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
 ]
 
 [package.metadata]
@@ -1186,12 +1195,16 @@ requires-dist = [
     { name = "openenv-core", specifier = "==0.2.2" },
     { name = "psutil", specifier = "==7.2.2" },
     { name = "pydantic", specifier = "==2.12.5" },
-    { name = "pytest", specifier = "==9.0.2" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = "==9.0.2" },
     { name = "python-dotenv", specifier = "==1.2.2" },
     { name = "requests", specifier = "==2.32.5" },
     { name = "uvicorn", extras = ["standard"], specifier = "==0.42.0" },
     { name = "websockets", specifier = "==16.0" },
 ]
+provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = "==9.0.2" }]
 
 [[package]]
 name = "markdown-it-py"
