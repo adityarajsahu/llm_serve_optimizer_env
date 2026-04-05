@@ -23,22 +23,14 @@ WORKDIR $HOME/app
 RUN apt-get update && apt-get install -y --no-install-recommends curl git git-lfs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv — fast Rust-based Python package manager
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:$PATH" \
-    UV_SYSTEM_PYTHON=1
-
 RUN mkdir -p $HOME/app/models && cd $HOME/app/models && \
     git clone --depth 1 https://huggingface.co/EleutherAI/pythia-70m-deduped && rm -rf pythia-70m-deduped/.git && \
     git clone --depth 1 https://huggingface.co/openai-community/gpt2 && rm -rf gpt2/.git && \
     git clone --depth 1 https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct && rm -rf SmolLM2-135M-Instruct/.git
 
-# Install Python deps first (layer-cached unless pyproject.toml/uv.lock change)
-# UV_SYSTEM_PYTHON=1 is set above — uv pip install goes into system Python (no venv),
-# keeping pytest and all other entry points on PATH.
-COPY pyproject.toml uv.lock /tmp/pkg/
-RUN cd /tmp/pkg && uv export --frozen -o /tmp/requirements.txt && \
-    uv pip install --no-cache-dir -r /tmp/requirements.txt
+# Install Python deps first (layer-cached unless requirements change)
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Copy source
 COPY --chown=user . $HOME/app
