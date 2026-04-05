@@ -23,7 +23,7 @@ TASK_EASY = TaskConfig(
         "max_num_batched_tokens": 256,
         "max_num_seqs": 1,
     },
-    target_latency_ms = 750.0,
+    target_latency_ms =  150.0, # 750.0
     target_throughput = 0.0,
     max_steps = 4,
     difficulty = "easy_pythia_p99"
@@ -39,7 +39,7 @@ TASK_MEDIUM = TaskConfig(
         "max_num_batched_tokens": 256,
         "max_num_seqs": 1,
     },
-    target_latency_ms = 1300.0,
+    target_latency_ms = 300.0, # 1300.0
     target_throughput = 24.0,
     max_steps = 4,
     difficulty = "medium_gpt2_p99_tput"
@@ -55,7 +55,7 @@ TASK_HARD = TaskConfig(
         "max_num_batched_tokens": 256,
         "max_num_seqs": 1,
     },
-    target_latency_ms = 2100.0,
+    target_latency_ms = 500.0, # 2100.0
     target_throughput = 15.0,
     max_steps = 4,
     difficulty = "hard_smollm2_stricter_p99_tput"
@@ -71,7 +71,7 @@ TASK_EXTREME = TaskConfig(
         "max_num_batched_tokens": 256,
         "max_num_seqs": 1,
     },
-    target_latency_ms = 780.0,
+    target_latency_ms = 150.0, # 780.0
     target_throughput = 42.0,
     max_steps = 4,
     difficulty = "extreme_pythia_p99_tput_ram_optimize",
