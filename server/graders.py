@@ -16,23 +16,23 @@ class TaskConfig:
 TASK_EASY = TaskConfig(
     task_id = "easy_pythia_p99",
     model_key = "pythia-70m-deduped",
-    description = "Deploy Pythia-70M on CPU. Default float32 is slower than bfloat16 on modern CPUs. Tune dtype (try bfloat16) to reduce p99 latency below 920ms. Pythia is tiny so RAM is not a concern — focus on speed. You have 5 steps.",
+    description = "Deploy Pythia-70M on CPU. Hit BOTH: p99 latency ≤ 750ms AND throughput ≥ 46 tok/s. Start with bfloat16 to cut latency, then tune max_num_batched_tokens or max_num_seqs to push throughput above target. RAM is not a concern here — focus on speed. You have 4 steps.",
     initial_params = {
         "dtype": "float32",
         "max_model_len": 128,
         "max_num_batched_tokens": 256,
         "max_num_seqs": 1,
     },
-    target_latency_ms = 920.0,
+    target_latency_ms = 750.0,
     target_throughput = 0.0,
-    max_steps = 5,
+    max_steps = 4,
     difficulty = "easy_pythia_p99"
 )
 
 TASK_MEDIUM = TaskConfig(
     task_id = "medium_gpt2_p99_tput",
     model_key = "gpt2",
-    description = "Deploy GPT-2 (124M) on CPU for a real-time API. Hit BOTH: p99 latency ≤ 1300ms AND throughput ≥ 24 tok/s. bfloat16 helps latency but you'll also need to tune max_num_batched_tokens and possibly max_num_seqs to hit both targets. You have 5 steps.",
+    description = "Deploy GPT-2 (124M) on CPU for a real-time API. Hit BOTH: p99 latency ≤ 1300ms AND throughput ≥ 24 tok/s. bfloat16 helps latency but you'll also need to tune max_num_batched_tokens and possibly max_num_seqs to hit both targets. You have 4 steps.",
     initial_params = {
         "dtype": "float32",
         "max_model_len": 128,
@@ -41,14 +41,14 @@ TASK_MEDIUM = TaskConfig(
     },
     target_latency_ms = 1300.0,
     target_throughput = 24.0,
-    max_steps = 5,
+    max_steps = 4,
     difficulty = "medium_gpt2_p99_tput"
 )
 
 TASK_HARD = TaskConfig(
     task_id = "hard_smollm2_stricter_p99_tput",
     model_key = "smollm2-135m",
-    description = "Deploy SmolLM2-135M on CPU. Target: p99 ≤ 2100ms AND throughput ≥ 15 tok/s. bfloat16 alone won't be enough — also tune max_num_batched_tokens and max_model_len to push latency and throughput past both targets. Keep RAM manageable. You have 5 steps.",
+    description = "Deploy SmolLM2-135M on CPU. Target: p99 ≤ 2100ms AND throughput ≥ 15 tok/s. bfloat16 alone won't be enough — also tune max_num_batched_tokens and max_model_len to push latency and throughput past both targets. Keep RAM manageable. You have 4 steps.",
     initial_params = {
         "dtype": "float32",
         "max_model_len": 128,
@@ -57,7 +57,7 @@ TASK_HARD = TaskConfig(
     },
     target_latency_ms = 2100.0,
     target_throughput = 15.0,
-    max_steps = 5,
+    max_steps = 4,
     difficulty = "hard_smollm2_stricter_p99_tput"
 )
 
@@ -73,7 +73,7 @@ TASK_EXTREME = TaskConfig(
     },
     target_latency_ms = 780.0,
     target_throughput = 42.0,
-    max_steps = 5,
+    max_steps = 4,
     difficulty = "extreme_pythia_p99_tput_ram_optimize",
     baseline_ram_gb = 93.18,
     target_ram_gb = 108.0,

@@ -63,7 +63,7 @@ ENV_BASE_URL = os.getenv(
 
 BENCHMARK = "llm-serve-optimizer"
 TASKS: List[str] = ["easy_pythia_p99", "medium_gpt2_p99_tput", "hard_smollm2_stricter_p99_tput", "extreme_pythia_p99_tput_ram_optimize"]
-MAX_STEPS = 5
+MAX_STEPS = 4
 TEMPERATURE = 0.1
 MAX_TOKENS = 100
 SUCCESS_THRESHOLD = 0.1
