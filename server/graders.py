@@ -71,7 +71,7 @@ TASK_EXTREME = TaskConfig(
         "max_num_batched_tokens": 256,
         "max_num_seqs": 1,
     },
-    target_latency_ms = 150.0, # 780.0
+    target_latency_ms = 780.0,
     target_throughput = 42.0,
     max_steps = 4,
     difficulty = "extreme_pythia_p99_tput_ram_optimize",
