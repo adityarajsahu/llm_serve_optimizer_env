@@ -35,7 +35,7 @@ RUN mkdir -p $HOME/app/models && cd $HOME/app/models && \
 
 # Install Python deps first (layer-cached unless pyproject.toml/uv.lock change)
 COPY pyproject.toml uv.lock /tmp/pkg/
-RUN cd /tmp/pkg && uv sync --frozen --no-dev --no-install-project
+RUN cd /tmp/pkg && uv sync --frozen --no-install-project
 
 # Copy source
 COPY --chown=user . $HOME/app
