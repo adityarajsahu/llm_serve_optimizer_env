@@ -34,8 +34,11 @@ RUN mkdir -p $HOME/app/models && cd $HOME/app/models && \
     git clone --depth 1 https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct && rm -rf SmolLM2-135M-Instruct/.git
 
 # Install Python deps first (layer-cached unless pyproject.toml/uv.lock change)
+# UV_SYSTEM_PYTHON=1 is set above — uv pip install goes into system Python (no venv),
+# keeping pytest and all other entry points on PATH.
 COPY pyproject.toml uv.lock /tmp/pkg/
-RUN cd /tmp/pkg && uv sync --frozen --no-install-project
+RUN cd /tmp/pkg && uv export --frozen -o /tmp/requirements.txt && \
+    uv pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Copy source
 COPY --chown=user . $HOME/app

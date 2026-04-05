@@ -234,7 +234,11 @@ When the agent sends an action:
 
 ### Prerequisites
 
-The environment server must already be running (see Docker section below).
+> [!IMPORTANT]
+> **The environment server must be started via Docker** — do not attempt to run it directly with Python locally.
+> The server depends on [vLLM CPU](https://github.com/vllm-project/vllm), which requires a specially built base image (`vllm/vllm-openai-cpu`). Installing vLLM CPU from source is a lengthy and error-prone process involving custom compilation. The Docker image bundles everything correctly out of the box.
+>
+> See the **[Docker section below](#docker--building-and-running-locally)** to start the server first, then come back here to run `inference.py`.
 
 The script reads credentials from a `.env` file in the project root. Create one with the following variables:
 
@@ -273,7 +277,9 @@ The script runs all four tasks in sequence (`easy_pythia_p99`, `medium_gpt2_p99_
 
 ## Docker — Building and Running Locally
 
-The Dockerfile builds a CPU-only image based on `vllm/vllm-openai-cpu`. During the build, all three unique model checkpoints are cloned locally to reduce runtime latency (Pythia-70M, GPT-2, SmolLM2-135M — note that `extreme_pythia_p99_tput_ram_optimize` reuses the same Pythia-70M weights as `easy_pythia_p99`).
+The environment server **must be run via Docker**. The Dockerfile is based on `vllm/vllm-openai-cpu` — a pre-built image that includes vLLM compiled for CPU inference. Installing vLLM CPU manually from source requires custom compilation steps that are lengthy and platform-specific; using the Docker image is the only supported and recommended way to run the server.
+
+During the build, all three unique model checkpoints are cloned locally to reduce runtime latency (Pythia-70M, GPT-2, SmolLM2-135M — note that `extreme_pythia_p99_tput_ram_optimize` reuses the same Pythia-70M weights as `easy_pythia_p99`).
 
 > ⚠️ The build step downloads ~700 MB of model weights. It may take several minutes.
 

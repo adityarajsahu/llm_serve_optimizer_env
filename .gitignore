@@ -212,6 +212,3 @@ server/generate_baseline_cache.py
 pre_validation_script.sh
 demo_inference.py
 get_runtime.py
-
-# pip requirements
-requirements_pip.txt
