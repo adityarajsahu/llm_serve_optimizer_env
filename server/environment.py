@@ -29,9 +29,9 @@ class LLMServeEnvironment(Environment):
         self._current_metrics = None
         self._serve_state = ServeState(episode_id = str(uuid4()), step_count = 0)
 
-    def reset(self, task_id: str = "easy") -> ServeObservation:
+    def reset(self, task_id: str = "easy_pythia_p99") -> ServeObservation:
         if task_id not in ALL_TASKS:
-            task_id = "easy"
+            task_id = "easy_pythia_p99"
 
         self._task = ALL_TASKS[task_id]
         self._current_params = self._task.initial_params.copy()

@@ -62,7 +62,7 @@ ENV_BASE_URL = os.getenv(
 )
 
 BENCHMARK = "llm-serve-optimizer"
-TASKS: List[str] = ["easy", "medium", "hard"]
+TASKS: List[str] = ["easy_pythia_p99", "medium_gpt2_p99_tput", "hard_smollm2_stricter_p99_tput", "extreme_pythia_p99_tput_ram_optimize"]
 MAX_STEPS = 5
 TEMPERATURE = 0.1
 MAX_TOKENS = 100
@@ -91,8 +91,11 @@ SYSTEM_PROMPT = textwrap.dedent("""
       * max_model_len=128 → lowest RAM, fastest startup, least context
     - For SmolLM2-135M: bfloat16 is often best and reduce max_model_len to save RAM
     - Increasing max_num_batched_tokens helps throughput with small latency cost
-    - max_num_seqs > 1 increases throughput but may raise per-request p99
+      * Lower values (64, 128) reduce KV-cache pressure and RAM at cost of batch efficiency
+    - max_num_seqs > 1 increases throughput but may raise per-request p99 and RAM
+      * max_num_seqs=1 is lowest RAM; use it when RAM minimization is a goal
     - A vLLM startup failure costs -0.3 reward — avoid OOM configs
+    - For RAM minimization tasks: combine bfloat16 + max_num_batched_tokens=64 + max_num_seqs=1
     - Respond with ONLY the JSON object, nothing else.
 """).strip()
 

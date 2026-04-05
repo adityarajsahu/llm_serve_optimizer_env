@@ -34,33 +34,52 @@ The environment server is a FastAPI/WebSocket application built with OpenEnv. Cl
 
 The environment supports any model that vLLM can serve. The three pre-configured models are deliberately small to stay within the reference deployment's resource limits (HF Spaces: 2 vCPU, ~8 GB RAM). All three are publicly available on Hugging Face and require no HF token. On GPU or TPU hardware, larger models can be used by extending the model registry in `data/model_card.py`.
 
-| Model                     | HF ID                                 | Parameters | Task     |
-| ------------------------- | ------------------------------------- | ---------- | -------- |
-| **Pythia-70M-Deduped**    | `EleutherAI/pythia-70m-deduped`       | 70M        | `easy`   |
-| **GPT-2 Small**           | `openai-community/gpt2`               | 124M       | `medium` |
-| **SmolLM2-135M-Instruct** | `HuggingFaceTB/SmolLM2-135M-Instruct` | 135M       | `hard`   |
+> **Note:** Pythia-70M-Deduped is used by **two** tasks (`easy_pythia_p99` and `extreme_pythia_p99_tput_ram_optimize`) with different performance targets and reward structures.
+
+| Model                     | HF ID                                 | Parameters | Tasks                                                                       |
+| ------------------------- | ------------------------------------- | ---------- | --------------------------------------------------------------------------- |
+| **Pythia-70M-Deduped**    | `EleutherAI/pythia-70m-deduped`       | 70M        | `easy_pythia_p99`, `extreme_pythia_p99_tput_ram_optimize`                   |
+| **GPT-2 Small**           | `openai-community/gpt2`               | 124M       | `medium_gpt2_p99_tput`                                                      |
+| **SmolLM2-135M-Instruct** | `HuggingFaceTB/SmolLM2-135M-Instruct` | 135M       | `hard_smollm2_stricter_p99_tput`                                            |
 
 ---
 
 ## Tasks
 
-The environment defines three tasks of increasing difficulty. Each task specifies which model to deploy, performance targets, and a step budget.
+The environment defines **four tasks** of increasing difficulty. Each task specifies which model to deploy, performance targets, and a step budget. Task IDs are descriptive strings that encode the model and the objectives being optimized.
 
-### Easy — Pythia-70M-Deduped
+> **Targets are calibrated to real CPU measurements** on this host. They reflect realistic improvements achievable within the step budget — not aspirational "best case" figures.
 
-- **Goal:** Get p99 latency ≤ **150 ms**
+### `easy_pythia_p99` — Pythia-70M-Deduped
+
+- **Baseline:** p99 = 1789 ms · throughput = 24.3 tok/s · RAM ≈ 93 GB (system total)
+- **Goal:** p99 latency ≤ **920 ms** (latency-only target)
 - **Steps:** 5
+- **Hint:** Switching `dtype` from `float32` → `bfloat16` is typically sufficient.
 
-### Medium — GPT-2 (124M)
+### `medium_gpt2_p99_tput` — GPT-2 (124M)
 
-- **Goal:** Get p99 latency ≤ **300 ms** AND throughput ≥ **40 tok/s**
+- **Baseline:** p99 = 2017 ms · throughput = 17.2 tok/s · RAM ≈ 92 GB
+- **Goal:** p99 latency ≤ **1750 ms** AND throughput ≥ **19 tok/s**
 - **Steps:** 5
+- **Hint:** `bfloat16` helps latency; tuning `max_num_batched_tokens` improves throughput.
 
-### Hard — SmolLM2-135M-Instruct
+### `hard_smollm2_stricter_p99_tput` — SmolLM2-135M-Instruct
 
-- **Goal:** Get p99 latency ≤ **450 ms** AND throughput ≥ **70 tok/s**
+- **Baseline:** p99 = 2610 ms · throughput = 12.6 tok/s · RAM ≈ 93 GB
+- **Goal:** p99 latency ≤ **2650 ms** AND throughput ≥ **13 tok/s**
 - **Steps:** 5
 - **Note:** RAM pressure is a real concern here — the agent must also keep memory usage in check.
+
+### `extreme_pythia_p99_tput_ram_optimize` — Pythia-70M-Deduped _(new)_
+
+- **Baseline:** p99 = 1789 ms · throughput = 24.3 tok/s · RAM ≈ 93 GB
+- **Goal:** **Three simultaneous objectives:**
+  1. p99 latency ≤ **780 ms** (below the float32 baseline of ~789 ms)
+  2. throughput ≥ **42 tok/s**
+  3. **Minimize total system RAM** — every GB saved below 108 GB earns additional reward
+- **Steps:** 5
+- **Note:** This is the only task where RAM savings directly contribute to both the per-step reward (up to `+0.30`) and the final score (up to 30% of total). Combines `bfloat16` + low `max_num_batched_tokens` + `max_num_seqs=1` for the best RAM profile.
 
 ---
 
@@ -89,39 +108,66 @@ The reward is computed by `TaskGrader` in `server/graders.py` after the benchmar
 
 **If vLLM fails to start** (OOM or invalid config): `reward = -0.3`
 
-**Easy task (latency only):**
+**`easy_pythia_p99` (latency only):**
 
-- Up to `+0.5` for proportional latency improvement over the previous step
-- `+0.3` bonus for hitting the latency target (≤ 150 ms)
-- `+0.2` additional bonus for beating 70% of the target (≤ 105 ms)
+| Signal | Max |
+|---|---|
+| Proportional latency improvement vs. previous step | `+0.50` |
+| Hitting latency target (≤ 920 ms) | `+0.30` |
+| Beating 70% of target (≤ 644 ms) | `+0.20` |
 
-**Medium task (latency + throughput):**
+**`medium_gpt2_p99_tput` (latency + throughput):**
 
-- Up to `+0.35` for latency improvement
-- Up to `+0.35` proportional to how close throughput is to the 40 tok/s target
-- `+0.2` bonus when **both** targets are simultaneously met
-- `+0.1` bonus if RAM usage stays below 3 GB
+| Signal | Max |
+|---|---|
+| Proportional latency improvement | `+0.35` |
+| Throughput progress toward 19 tok/s target | `+0.35` |
+| Both targets met simultaneously | `+0.20` |
+| RAM below 108 GB total | `+0.10` |
 
-**Hard task (latency + throughput + RAM):**
+**`hard_smollm2_stricter_p99_tput` (latency + throughput + RAM):**
 
-- Up to `+0.35` for latency improvement
-- Up to `+0.30` proportional to throughput progress toward 70 tok/s
-- `+0.25` bonus when **both** targets are simultaneously met
-- `+0.10` bonus if RAM stays below 4 GB
+| Signal | Max |
+|---|---|
+| Proportional latency improvement | `+0.35` |
+| Throughput progress toward 13 tok/s target | `+0.30` |
+| Both targets met simultaneously | `+0.25` |
+| RAM below 109 GB total | `+0.10` |
+
+**`extreme_pythia_p99_tput_ram_optimize` (latency + throughput + RAM savings — _new_):**
+
+| Signal | Max |
+|---|---|
+| Latency improvement vs. previous step | `+0.25` |
+| Throughput progress toward 42 tok/s target | `+0.25` |
+| Both latency AND throughput targets met simultaneously | `+0.20` |
+| RAM savings below 108 GB ceiling (continuous, scales with GB saved) | `+0.30` |
+
+> The RAM savings window spans `108 GB − 93.18 GB ≈ 14.8 GB`. Keeping RAM at the system baseline earns the full `+0.30`; being at or above 108 GB earns `+0.00`.
 
 All per-step rewards are capped at `1.0`.
 
 ### Final Score (Evaluation)
 
-Computed from the **best configuration found across all steps**:
+Computed from the **best configuration found across all steps**.
 
-| Outcome                                 | Score                                                  |
-| --------------------------------------- | ------------------------------------------------------ |
-| vLLM failed                             | `0.0`                                                  |
+**Tasks `easy_pythia_p99`, `medium_gpt2_p99_tput`, `hard_smollm2_stricter_p99_tput`:**
+
+| Outcome                                 | Score                                                   |
+| --------------------------------------- | ------------------------------------------------------- |
+| vLLM failed                             | `0.0`                                                   |
 | Both latency and throughput targets met | `0.7 + 0.3 × (target / best_latency)`, capped at `1.0` |
-| Latency target met only                 | `0.55`                                                 |
-| Throughput target met only              | `0.35`                                                 |
-| Neither target met                      | `progress × 0.3` (partial credit)                      |
+| Latency target met only                 | `0.55`                                                  |
+| Throughput target met only              | `0.35`                                                  |
+| Neither target met                      | `(target_lat / best_p99) × 0.3` (partial credit)        |
+
+**Task `extreme_pythia_p99_tput_ram_optimize` (three-objective scoring):**
+
+| Component | Weight | Notes |
+|---|---|---|
+| Latency (p99 vs 780 ms target) | **40%** | Partial credit even below target; small bonus for beating it |
+| Throughput (vs 42 tok/s target) | **30%** | Proportional: `tput / 42`, capped at 1.0 |
+| RAM savings (below 108 GB ceiling) | **30%** | `(108 - ram_used) / 14.82 GB`, capped at 1.0 |
 
 An **invalid action** (unknown parameter or out-of-range value) incurs a small penalty of `-0.05` and wastes a step.
 
@@ -158,6 +204,17 @@ llm_serve_optimizer_env/
 ### Episode Start (`reset`)
 
 Since baseline metrics for each task's default configuration are deterministic (same model, same initial params, same hardware), they are **pre-computed and saved** to `data/baseline_cache.json` to avoid redundant compute on every episode start. The `reset()` endpoint returns the cached baseline instantly, allowing the agent to begin tuning immediately.
+
+The cache covers all four task IDs with their measured baselines (float32, default params):
+
+| Task ID | Model | Baseline p99 | Baseline tput | Baseline RAM |
+|---|---|---|---|---|
+| `easy_pythia_p99` | pythia-70m-deduped | 1789 ms | 24.3 tok/s | 93.18 GB |
+| `medium_gpt2_p99_tput` | gpt2 | 2017 ms | 17.2 tok/s | 92.06 GB |
+| `hard_smollm2_stricter_p99_tput` | smollm2-135m | 2610 ms | 12.6 tok/s | 92.67 GB |
+| `extreme_pythia_p99_tput_ram_optimize` | pythia-70m-deduped | 1789 ms | 24.3 tok/s | 93.18 GB |
+
+> **Note:** RAM values reflect total system RAM in use (measured via `psutil.virtual_memory().used`) at benchmark time on the reference host, not model weights size.
 
 ### Each Step (`step`)
 
@@ -200,17 +257,17 @@ HF_TOKEN= ... # <groq_api_key_in_my_case>
 # Install OpenEnv environment dependencies
 pip install -r requirements.txt
 
-# Run the agent against the 'easy' task
+# Run the agent against all four tasks
 python inference.py
 ```
 
-The script will print structured `[START]`, `[STEP]`, and `[END]` log lines for each task — the mandatory format required by the OpenEnv submission spec — followed by a summary table.
+The script runs all four tasks in sequence (`easy_pythia_p99`, `medium_gpt2_p99_tput`, `hard_smollm2_stricter_p99_tput`, `extreme_pythia_p99_tput_ram_optimize`) and prints structured `[START]`, `[STEP]`, and `[END]` log lines for each — the mandatory format required by the OpenEnv submission spec — followed by a summary table.
 
 ---
 
 ## Docker — Building and Running Locally
 
-The Dockerfile builds a CPU-only image based on `vllm/vllm-openai-cpu`. During the build, all three supported models are cloned locally to reduce runtime latency.
+The Dockerfile builds a CPU-only image based on `vllm/vllm-openai-cpu`. During the build, all three unique model checkpoints are cloned locally to reduce runtime latency (Pythia-70M, GPT-2, SmolLM2-135M — note that `extreme_pythia_p99_tput_ram_optimize` reuses the same Pythia-70M weights as `easy_pythia_p99`).
 
 > ⚠️ The build step downloads ~700 MB of model weights. It may take several minutes.
 

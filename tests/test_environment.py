@@ -19,7 +19,7 @@ def make_mock_result(latency = 500.0, tput = 20.0, ram = 1.5, failed = False):
         config_note = "mocked"
     )
 
-def make_env(task_id = "easy", initial_latency = 500.0):
+def make_env(task_id = "easy_pythia_p99", initial_latency = 500.0):
     env = LLMServeEnvironment()
     env._simulator.simulate = mock.MagicMock(
         return_value = make_mock_result(latency = initial_latency)
@@ -41,8 +41,8 @@ class TestReset:
         assert env.state.failed_starts == 0
 
     def test_reset_task_id_set(self):
-        env, obs = make_env("easy")
-        assert env.state.task_id == "easy"
+        env, obs = make_env("easy_pythia_p99")
+        assert env.state.task_id == "easy_pythia_p99"
 
     def test_reset_unknown_task_defaults_to_easy(self):
         env = LLMServeEnvironment()
@@ -51,7 +51,7 @@ class TestReset:
         )
         env._simulator.ram_total_gb = 8.0
         obs = env.reset(task_id = "nonexistent")
-        assert obs.task_id == "easy"
+        assert obs.task_id == "easy_pythia_p99"
 
     def test_reset_hardware_is_cpu(self):
         env, obs = make_env()
@@ -63,7 +63,7 @@ class TestReset:
         assert hasattr(obs, "ram_total_gb")
 
     def test_reset_all_tasks(self):
-        for task_id in ["easy", "medium", "hard"]:
+        for task_id in ["easy_pythia_p99", "medium_gpt2_p99_tput", "hard_smollm2_stricter_p99_tput", "extreme_pythia_p99_tput_ram_optimize"]:
             env = LLMServeEnvironment()
             env._simulator.simulate = mock.MagicMock(
                 return_value = make_mock_result()
@@ -136,14 +136,14 @@ class TestStep:
         assert obs.steps_remaining == initial_remaining - 1
 
     def test_episode_ends_at_max_steps(self):
-        env, _ = make_env("easy")
+        env, _ = make_env("easy_pythia_p99")
         obs = None
         for _ in range(5):
             obs = env.step(ServeAction(parameter = "max_num_seqs", value = 2))
         assert obs.done is True
 
     def test_episode_ends_on_target_hit(self):
-        env, _ = make_env("easy")
+        env, _ = make_env("easy_pythia_p99")
         env._simulator.simulate.return_value = make_mock_result(latency = 145.0)
         obs = env.step(ServeAction(parameter = "dtype", value = "float16"))
         assert obs.done is True
@@ -170,6 +170,6 @@ class TestState:
         assert env.state.step_count == 1
  
         env._simulator.simulate.return_value = make_mock_result()
-        env.reset("easy")
+        env.reset("easy_pythia_p99")
         assert env.state.step_count == 0
         assert env.state.total_reward == 0.0
