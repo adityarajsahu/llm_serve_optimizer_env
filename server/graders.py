@@ -32,15 +32,15 @@ TASK_EASY = TaskConfig(
 TASK_MEDIUM = TaskConfig(
     task_id = "medium_gpt2_p99_tput",
     model_key = "gpt2",
-    description = "Deploy GPT-2 (124M) on CPU for a real-time API. Hit BOTH: p99 latency ≤ 1750ms AND throughput ≥ 19 tok/s. bfloat16 is faster than float32 on modern CPUs. Tuning max_num_batched_tokens helps throughput. You have 5 steps.",
+    description = "Deploy GPT-2 (124M) on CPU for a real-time API. Hit BOTH: p99 latency ≤ 1300ms AND throughput ≥ 24 tok/s. bfloat16 helps latency but you'll also need to tune max_num_batched_tokens and possibly max_num_seqs to hit both targets. You have 5 steps.",
     initial_params = {
         "dtype": "float32",
         "max_model_len": 128,
         "max_num_batched_tokens": 256,
         "max_num_seqs": 1,
     },
-    target_latency_ms = 1750.0,
-    target_throughput = 19.0,
+    target_latency_ms = 1300.0,
+    target_throughput = 24.0,
     max_steps = 5,
     difficulty = "medium_gpt2_p99_tput"
 )
@@ -48,15 +48,15 @@ TASK_MEDIUM = TaskConfig(
 TASK_HARD = TaskConfig(
     task_id = "hard_smollm2_stricter_p99_tput",
     model_key = "smollm2-135m",
-    description = "Deploy SmolLM2-135M on CPU. WARNING: RAM usage might be something to optimize as well, try keeping memory low. Target: p99 ≤ 2650ms AND throughput ≥ 13 tok/s. Try bfloat16, reduce max_model_len, and tune max_num_batched_tokens. You have 5 steps.",
+    description = "Deploy SmolLM2-135M on CPU. Target: p99 ≤ 2100ms AND throughput ≥ 15 tok/s. bfloat16 alone won't be enough — also tune max_num_batched_tokens and max_model_len to push latency and throughput past both targets. Keep RAM manageable. You have 5 steps.",
     initial_params = {
         "dtype": "float32",
         "max_model_len": 128,
         "max_num_batched_tokens": 256,
         "max_num_seqs": 1,
     },
-    target_latency_ms = 2650.0,
-    target_throughput = 13.0,
+    target_latency_ms = 2100.0,
+    target_throughput = 15.0,
     max_steps = 5,
     difficulty = "hard_smollm2_stricter_p99_tput"
 )
