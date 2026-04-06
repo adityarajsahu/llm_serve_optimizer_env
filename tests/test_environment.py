@@ -138,7 +138,7 @@ class TestStep:
     def test_episode_ends_at_max_steps(self):
         env, _ = make_env("easy_pythia_p99")
         obs = None
-        for _ in range(5):
+        for _ in range(3):
             obs = env.step(ServeAction(parameter = "max_num_seqs", value = 2))
         assert obs.done is True
 

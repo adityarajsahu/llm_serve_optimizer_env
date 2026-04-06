@@ -54,12 +54,9 @@ load_dotenv()
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+API_KEY = os.getenv("HF_TOKEN")
 
-ENV_BASE_URL = os.getenv(
-    "ENV_BASE_URL",
-    "https://adityarajsahu-llm-serve-optimizer-env.hf.space",
-)
+ENV_BASE_URL = "https://adityarajsahu-llm-serve-optimizer-env.hf.space"
 
 BENCHMARK = "llm-serve-optimizer"
 TASKS: List[str] = ["easy_pythia_p99", "medium_gpt2_p99_tput", "hard_smollm2_stricter_p99_tput", "extreme_pythia_p99_tput_ram_optimize"]
@@ -77,14 +74,13 @@ SYSTEM_PROMPT = textwrap.dedent("""
     {"parameter": "<param_name>", "value": <value>}
 
     Valid parameters and their allowed values:
-    dtype                  : "float32", "float16", "bfloat16"
+    dtype                  : "float32", "bfloat16", "float16"
     max_model_len          : 128, 192, 256
     max_num_batched_tokens : 64, 128, 256, 512
     max_num_seqs           : 1, 2, 4, 8
 
     Key knowledge for CPU inference:
-    - bfloat16 is the BEST dtype for CPU — faster than float32, works on ALL models
-    - float16 works well on Pythia and GPT-2
+    - float16 is the BEST dtype for CPU — faster than bfloat16 and float32, works on ALL models
     - max_model_len controls KV cache size — THE biggest RAM consumer
       * max_model_len=256 → high RAM usage (risky for larger models)
       * max_model_len=192 → balanced
@@ -170,8 +166,8 @@ def run_task(task_id: str, llm_client: OpenAI) -> dict:
         ).sync() as env:
 
             result = env.reset(task_id=task_id)
-            obs    = result.observation
-            step   = 0
+            obs = result.observation
+            step = 0
 
             while not result.done and step < MAX_STEPS:
                 step += 1
