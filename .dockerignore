@@ -9,6 +9,7 @@ docker-compose.yml
 Dockerfile
 .docker
 .dockerignore
+test.Dockerfile
 
 # Byte-compiled / optimized / DLL files
 **/__pycache__/
