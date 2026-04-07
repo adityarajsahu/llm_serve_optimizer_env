@@ -61,6 +61,7 @@ ENV_BASE_URL = "https://adityarajsahu-llm-serve-optimizer-env.hf.space"
 BENCHMARK = "llm-serve-optimizer"
 TASKS: List[str] = ["easy_pythia_p99", "medium_gpt2_p99_tput", "hard_smollm2_stricter_p99_tput", "extreme_pythia_p99_tput_ram_optimize"]
 MAX_STEPS = 3
+MAX_REWARD_PER_STEP = 1.0
 TEMPERATURE = 0.1
 MAX_TOKENS = 100
 SUCCESS_THRESHOLD = 0.1
@@ -107,10 +108,10 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
         flush=True,
     )
 
-def log_end(success: bool, steps: int, rewards: List[float]) -> None:
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
-        f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}",
+        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
         flush=True,
     )
 
@@ -151,6 +152,46 @@ def build_user_prompt(obs, step: int, history: List[str]) -> str:
 
     lines += ["", 'Respond with exactly one JSON: {"parameter": "...", "value": ...}']
     return "\n".join(lines)
+
+def compute_final_score(task_id: str, failed: bool, latency_p99_ms: float, throughput_tok_per_sec: float, ram_used_gb: float, target_latency_ms: float, target_throughput: float) -> float:
+    if failed:
+        return 0.0
+
+    lat_ok = latency_p99_ms <= target_latency_ms
+    tput_ok = (target_throughput == 0.0 or throughput_tok_per_sec >= target_throughput)
+
+    if task_id == "extreme_pythia_p99_tput_ram_optimize":
+        baseline_ram_gb = 93.18
+        target_ram_gb = 108.0
+        
+        if lat_ok:
+            lat_ratio = target_latency_ms / max(latency_p99_ms, 1.0)
+            lat_score = min(0.40 + 0.10 * (lat_ratio - 1.0), 0.50)
+        else:
+            lat_progress = min(target_latency_ms / max(latency_p99_ms, 1.0), 1.0)
+            lat_score = round(lat_progress * 0.40, 3)
+
+        tput_ratio = min(throughput_tok_per_sec / max(target_throughput, 1.0), 1.0)
+        tput_score = round(tput_ratio * 0.30, 3)
+
+        savings_window = max(target_ram_gb - baseline_ram_gb, 1.0)
+        ram_savings = max(target_ram_gb - ram_used_gb, 0.0)
+        ram_ratio = min(ram_savings / savings_window, 1.0)
+        ram_score = round(ram_ratio * 0.30, 3)
+
+        total = round(lat_score + tput_score + ram_score, 3)
+        return min(total, 1.0)
+
+    if lat_ok and tput_ok:
+        ratio = target_latency_ms / max(latency_p99_ms, 1.0)
+        return min(round(0.7 + 0.3 * (ratio - 1.0), 3), 1.0)
+    elif lat_ok:
+        return 0.55
+    elif tput_ok:
+        return 0.35
+    else:
+        progress = min(target_latency_ms / max(latency_p99_ms, 1.0), 1.0)
+        return round(progress * 0.3, 3)
 
 def run_task(task_id: str, llm_client: OpenAI) -> dict:
     history: List[str] = []
@@ -222,23 +263,25 @@ def run_task(task_id: str, llm_client: OpenAI) -> dict:
                     break
 
             state = env.state()
-            from server.graders import ALL_TASKS, TaskGrader
-            final_score = TaskGrader().final_score(
-                ALL_TASKS[task_id],
-                type("M", (), {
-                    "failed": obs.constraint_violated,
-                    "latency_p99_ms": state.best_latency_ms,
-                    "throughput_tok_per_sec": state.best_throughput,
-                    "ram_used_gb": obs.ram_used_gb,
-                })(),
+            final_score = compute_final_score(
+                task_id=task_id,
+                failed=obs.constraint_violated,
+                latency_p99_ms=state.best_latency_ms,
+                throughput_tok_per_sec=state.best_throughput,
+                ram_used_gb=obs.ram_used_gb,
+                target_latency_ms=obs.target_latency_ms,
+                target_throughput=obs.target_throughput,
             )
+            MAX_REWARD = MAX_STEPS * MAX_REWARD_PER_STEP
+            score = sum(rewards) / MAX_REWARD if MAX_REWARD > 0 else 0.0
+            score = min(max(score, 0.01), 0.99)
             success = final_score >= SUCCESS_THRESHOLD
 
     except Exception as exc:
         final_score = 0.0
 
     finally:
-        log_end(success=success, steps=steps_taken, rewards=rewards)
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
     return {
         "task_id": task_id,
