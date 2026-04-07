@@ -258,6 +258,10 @@ HF_TOKEN= ... # <groq_api_key_in_my_case>
 ### Running Inference
 
 ```bash
+# Create virtual environment and activate it
+python3.12 -m venv openenv_env
+source openenv_env/bin/activate
+
 # Install OpenEnv environment dependencies
 pip install -r requirements.txt
 

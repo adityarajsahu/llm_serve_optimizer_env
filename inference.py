@@ -60,7 +60,7 @@ ENV_BASE_URL = "https://adityarajsahu-llm-serve-optimizer-env.hf.space"
 
 BENCHMARK = "llm-serve-optimizer"
 TASKS: List[str] = ["easy_pythia_p99", "medium_gpt2_p99_tput", "hard_smollm2_stricter_p99_tput", "extreme_pythia_p99_tput_ram_optimize"]
-MAX_STEPS = 4
+MAX_STEPS = 3
 TEMPERATURE = 0.1
 MAX_TOKENS = 100
 SUCCESS_THRESHOLD = 0.1
