@@ -38,11 +38,11 @@ STDOUT FORMAT
     [END] success=true steps=2 rewards=0.10,0.30
 """
 
-import asyncio
 import json
 import os
 import sys
 import textwrap
+import time
 from typing import List, Optional
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -53,8 +53,8 @@ from models import ServeAction
 load_dotenv()
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+MODEL_NAME = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
+API_KEY = os.getenv("HF_TOKEN")
 
 ENV_BASE_URL = "https://adityarajsahu-llm-serve-optimizer-env.hf.space"
 
@@ -62,7 +62,6 @@ BENCHMARK = "llm-serve-optimizer"
 TASKS: List[str] = ["easy_pythia_p99", "medium_gpt2_p99_tput", "hard_smollm2_stricter_p99_tput", "extreme_pythia_p99_tput_ram_optimize"]
 MAX_STEPS = 3
 MAX_REWARD_PER_STEP = 1.0
-MAX_TOTAL_REWARD = MAX_STEPS * MAX_REWARD_PER_STEP
 TEMPERATURE = 0.1
 MAX_TOKENS = 100
 SUCCESS_THRESHOLD = 0.1
@@ -154,32 +153,9 @@ def build_user_prompt(obs, step: int, history: List[str]) -> str:
     lines += ["", 'Respond with exactly one JSON: {"parameter": "...", "value": ...}']
     return "\n".join(lines)
 
-def get_model_action(client: OpenAI, obs, step: int, history: List[str]) -> Optional[ServeAction]:
-    user_prompt = build_user_prompt(obs, step, history)
-    try:
-        completion = client.chat.completions.create(
-            model = MODEL_NAME,
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature = TEMPERATURE,
-            max_tokens = MAX_TOKENS,
-            response_format = {"type": "json_object"},
-        )
-        raw = (completion.choices[0].message.content or "").strip()
-        json_content = json.loads(raw)
-        return ServeAction(
-            parameter = json_content["parameter"],
-            value = json_content["value"]
-        )
-    except Exception as e:
-        print(f"[DEBUG] Model request failed: {e}", flush=True)
-        return None
-
 def compute_final_score(task_id: str, failed: bool, latency_p99_ms: float, throughput_tok_per_sec: float, ram_used_gb: float, target_latency_ms: float, target_throughput: float) -> float:
     if failed:
-        return 0.01
+        return 0.0
 
     lat_ok = latency_p99_ms <= target_latency_ms
     tput_ok = (target_throughput == 0.0 or throughput_tok_per_sec >= target_throughput)
@@ -204,114 +180,137 @@ def compute_final_score(task_id: str, failed: bool, latency_p99_ms: float, throu
         ram_score = round(ram_ratio * 0.30, 3)
 
         total = round(lat_score + tput_score + ram_score, 3)
-        return min(max(total, 0.01), 0.99)
+        return min(total, 1.0)
 
     if lat_ok and tput_ok:
         ratio = target_latency_ms / max(latency_p99_ms, 1.0)
-        return min(round(0.7 + 0.3 * (ratio - 1.0), 3), 0.99)
+        return min(round(0.7 + 0.3 * (ratio - 1.0), 3), 1.0)
     elif lat_ok:
         return 0.55
     elif tput_ok:
         return 0.35
     else:
         progress = min(target_latency_ms / max(latency_p99_ms, 1.0), 1.0)
-        return max(round(progress * 0.3, 3), 0.01)
+        return round(progress * 0.3, 3)
 
-async def run_task(task_id: str, llm_client: OpenAI) -> dict:
+def run_task(task_id: str, llm_client: OpenAI) -> dict:
     history: List[str] = []
     rewards: List[float] = []
     steps_taken = 0
     success = False
     score = 0.0
-    final_score = 0.01
+    final_score = 0.0
 
     log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
 
-    env = LLMServeEnv(base_url = ENV_BASE_URL, message_timeout_s = 600.0)
-
     try:
-        await env.connect()
+        with LLMServeEnv(
+            base_url=ENV_BASE_URL, message_timeout_s=600.0
+        ).sync() as env:
 
-        result = await env.reset(task_id = task_id)
-        obs = result.observation
-        last_reward = 0.0
-
-        for step in range(1, MAX_STEPS + 1):
-            if result.done:
-                break
-
-            action = get_model_action(llm_client, obs, step, history)
-            error_msg: Optional[str] = None
-
-            if action is None:
-                log_step(step = step, action = "null", reward = 0.0, done = False, error = "model_call_failed")
-                rewards.append(0.0)
-                steps_taken = step
-                continue
-
-            result = await env.step(action)
+            result = env.reset(task_id=task_id)
             obs = result.observation
+            step = 0
 
-            reward = result.reward or 0.0
-            done = result.done
+            while not result.done and step < MAX_STEPS:
+                step += 1
+                error_msg: Optional[str] = None
 
-            if obs.constraint_violated:
-                error_msg = obs.last_action_feedback or "constraint_violated"
+                try:
+                    completion = llm_client.chat.completions.create(
+                        model = MODEL_NAME,
+                        messages = [
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": build_user_prompt(obs, step, history)},
+                        ],
+                        temperature = TEMPERATURE,
+                        max_tokens = MAX_TOKENS,
+                        response_format = {"type": "json_object"},
+                        timeout = 15.0,
+                    )
+                    raw_content = completion.choices[0].message.content
+                    json_content = json.loads(raw_content)
+                    param = json_content["parameter"]
+                    value = json_content["value"]
+                    action = ServeAction(parameter=param, value=value)
+                except Exception as exc:
+                    error_msg = str(exc)
+                    log_step(step=step, action="null", reward=0.0, done=False, error=error_msg)
+                    rewards.append(0.0)
+                    steps_taken = step
+                    continue
 
-            rewards.append(reward)
-            steps_taken = step
-            last_reward = reward
+                result = env.step(action)
+                obs = result.observation
 
-            action_str = f"{action.parameter}:{action.value}"
-            history.append(
-                f"Step {step}: {action_str} → "
-                f"p99={obs.latency_p99_ms:.0f}ms "
-                f"tput={obs.throughput_tok_per_sec:.1f}tok/s "
-                f"RAM={obs.ram_used_gb:.2f}GB "
-                f"reward={reward:+.3f}"
+                reward = result.reward or 0.0
+                done = result.done
+                if obs.constraint_violated:
+                    error_msg = obs.last_action_feedback or "constraint_violated"
+
+                rewards.append(reward)
+                steps_taken = step
+
+                action_str = f"{action.parameter}:{action.value}"
+                history.append(
+                    f"Step {step}: {action_str} → "
+                    f"p99={obs.latency_p99_ms:.0f}ms "
+                    f"tput={obs.throughput_tok_per_sec:.1f}tok/s "
+                    f"RAM={obs.ram_used_gb:.2f}GB "
+                    f"reward={reward:+.3f}"
+                )
+
+                log_step(step=step, action=action_str, reward=reward, done=done, error=error_msg)
+
+                if done:
+                    break
+
+            state = env.state()
+            final_score = compute_final_score(
+                task_id=task_id,
+                failed=obs.constraint_violated,
+                latency_p99_ms=state.best_latency_ms,
+                throughput_tok_per_sec=state.best_throughput,
+                ram_used_gb=obs.ram_used_gb,
+                target_latency_ms=obs.target_latency_ms,
+                target_throughput=obs.target_throughput,
             )
+            MAX_REWARD = MAX_STEPS * MAX_REWARD_PER_STEP
+            score = sum(rewards) / MAX_REWARD if MAX_REWARD > 0 else 0.0
+            score = min(max(score, 0.01), 0.99)
+            success = final_score >= SUCCESS_THRESHOLD
 
-            log_step(step = step, action = action_str, reward = reward, done = done, error = error_msg)
+    except Exception as exc:
+        final_score = 0.0
 
-            if done:
-                break
-
-        state = await env.state()
-        final_score = compute_final_score(
-            task_id = task_id,
-            failed = obs.constraint_violated,
-            latency_p99_ms = state.best_latency_ms,
-            throughput_tok_per_sec = state.best_throughput,
-            ram_used_gb = obs.ram_used_gb,
-            target_latency_ms = obs.target_latency_ms,
-            target_throughput = obs.target_throughput
-        )
-
-        raw_score = sum(rewards) / MAX_TOTAL_REWARD if MAX_TOTAL_REWARD > 0 else 0.0
-        score = min(max(raw_score, 0.01), 0.99)
-        success = final_score >= SUCCESS_THRESHOLD
     finally:
         try:
-            await env.close()
+            env.close()
         except Exception as e:
-            print(f"[DEBUG] env.close() error: {e}", flush=True)
-        
-        log_end(success = success, steps = steps_taken, score = score, rewards = rewards)
+            print(f"[DEBUG] env.close() error (container cleanup): {e}", flush=True)
+
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
     return {
         "task_id": task_id,
         "final_score": final_score,
         "steps_used": steps_taken,
-        "rewards": rewards
+        "rewards": rewards,
     }
 
-async def main() -> None:
-    client = OpenAI(base_url = API_BASE_URL, api_key = API_KEY or "EMPTY")
+def main() -> None:
+    llm_client = OpenAI(
+        base_url = API_BASE_URL, 
+        api_key = API_KEY or "EMPTY"
+    )
     results = []
+    t_total = time.time()
 
     for task_id in TASKS:
-        results.append(await run_task(task_id, client))
+        results.append(run_task(task_id, llm_client))
+
+    total_elapsed = time.time() - t_total
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
