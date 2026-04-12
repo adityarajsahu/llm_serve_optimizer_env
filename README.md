@@ -9,24 +9,76 @@ pinned: false
 
 # LLM Serve Optimizer Environment
 
-An **Reinforcement Learning environment** for optimizing LLM deployment configurations to meet target latency and throughput requirements. Built using [OpenEnv](https://github.com/meta-pytorch/OpenEnv), the environment runs [vLLM](https://github.com/vllm-project/vllm) inference server and benchmarks it after each configuration change — providing an RL agent with real-world performance feedback.
+## What Problem Does This Solve?
 
-The environment is **platform and hardware agnostic** — it can run on CPU, GPU, and AI accelerators such as Google TPU, with vLLM transparently handling the backend. The reference deployment targets CPU-only hardware (HF Spaces free tier), but the same environment and agent script work without modification on any hardware vLLM supports.
+When a company wants to make a language model available to users, think a customer support chatbot, a coding assistant, or a document summarizer, they need to _deploy_ it on a server. That server runs software called an **inference engine** which loads the model and handles incoming requests.
+
+The problem is that inference engine has many configuration knobs:
+
+- **What number format should the weights use?** (`float32`, `float16`, `bfloat16`) - affects speed and memory
+- **How long can input and output sequences be?** - affects memory usage
+- **How many requests should be processed simultaneously?** - affects throughput
+- **How many tokens should be batched together?** - affects both latency and throughput
+
+The wrong combination means slow responses (high latency), low capacity (few requests per second), or crashes (Out Of Memory). The right combination can make the same hardware serve **2-3x more users at half the response time**. Finding that combination today requires experienced engineers running manual experiments - a slow, expensive, and error-prone process.
 
 ---
 
 ## What This Is
 
-Deploying an LLM in production requires tuning several engine parameters (data types, context lengths, batching settings) to balance speed, throughput, and memory usage. Getting this right is non-trivial and typically requires manual experimentation.
+A **Reinforcement Learning environment** for optimizing LLM deployment configurations to meet target latency and throughput requirements. Built using [OpenEnv](https://github.com/meta-pytorch/OpenEnv), the environment runs [vLLM](https://github.com/vllm-project/vllm) inference engine and benchmarks it after each configuration change — providing an RL agent with real-world performance feedback.
 
-This project frames that problem as a **reinforcement learning task**:
+The environment is **platform and hardware agnostic** — it can run on CPU, GPU, and AI accelerators such as Google TPU, with vLLM transparently handling the backend. The reference deployment targets CPU-only hardware (HF Spaces free tier), but the same environment and agent script work without modification on any hardware vLLM supports.
 
-- An **agent** observes the current deployment configuration and its measured performance (p99 latency, throughput, RAM usage).
-- The agent sends a single `(parameter, value)` action to the environment.
-- The environment **restarts or reconfigures** the vLLM server with the new setting, runs a real benchmark, and returns a **reward** based on how much the performance improved and whether the target was met.
-- The agent's goal is to find the optimal configuration within a limited number of steps.
+This project frames the configuration tuning problem as a **reinforcement learning task** where an AI agent is trained to find the optimal vLLM deployment configuration automatically, by actually running the inference server and measuring its performance after change
+
+```
+Agent decides: change dtype from float32 → bfloat16
+                        ↓
+Environment restarts vLLM with new setting
+                        ↓
+Runs real benchmark requests and measures response time
+                        ↓
+Returns: p99 latency = 820ms, throughput = 31 tokens/sec, reward = +0.34
+                        ↓
+Agent learns: bfloat16 is faster than float32 on this hardware
+```
+
+After training, such an agent could be deployed as an **automated deployment optimizer** - given any new model and any hardware, it tunes the serving configuration in minutes rather than hours a manual process takes.
+
+Most RL environments simulate their rewards. This one does not - every reward signal comes from **actual HTTP to a live vLLM server**. This means:
+
+- The agent learns from real hardware behaviour, not approximations
+- A trained policy transfers directly to production deployments
+- The environment is hardware agnostic: swap CPU for GPU or TPU and the same agent script works unchanged
 
 The environment server is a FastAPI/WebSocket application built with OpenEnv. Clients connect over WebSocket and interact with the environment using a standard `reset → step → step → ...` loop.
+
+---
+
+## Project Structure
+
+```
+llm_serve_optimizer_env/
+├── server/
+│   ├── app.py                    # FastAPI app entry point (OpenEnv server)
+│   ├── environment.py            # Core RL environment logic (reset, step, state)
+│   ├── simulator.py              # vLLM process lifecycle + real benchmarking
+│   ├── graders.py                # Task definitions, reward functions, final scoring
+├── data/
+│   ├── model_card.py             # Model registry & valid parameter values
+│   └── baseline_cache.json       # Pre-computed baseline metrics for each task
+├── tests/
+│   ├── test_environment.py       # Unit tests for the RL environment logic
+│   └── test_simulator.py         # Unit tests for the vLLM simulator
+├── client.py                     # OpenEnv WebSocket client for the environment
+├── models.py                     # Pydantic models: Action, Observation, State
+├── inference.py                  # LLM agent script (mandatory submission entry point)
+├── openenv.yaml                  # OpenEnv deployment config
+├── pyproject.toml                # Python project metadata & dependencies (uv-managed)
+├── uv.lock                       # Locked dependency tree (committed, reproducible installs)
+├── Dockerfile                    # Docker image (HF Spaces compatible)
+```
 
 ---
 
@@ -44,45 +96,6 @@ The environment supports any model that vLLM can serve. The three pre-configured
 
 ---
 
-## Tasks
-
-The environment defines **four tasks** of increasing difficulty. Each task specifies which model to deploy, performance targets, and a step budget. Task IDs are descriptive strings that encode the model and the objectives being optimized.
-
-> **Targets are calibrated to real CPU measurements** on this host. They reflect realistic improvements achievable within the step budget — not aspirational "best case" figures.
-
-### `easy_pythia_p99` — Pythia-70M-Deduped
-
-- **Baseline:** p99 = 1789 ms · throughput = 24.3 tok/s · RAM ≈ 93 GB (system total)
-- **Goal:** p99 latency ≤ **920 ms** (latency-only target)
-- **Steps:** 5
-- **Hint:** Switching `dtype` from `float32` → `bfloat16` is typically sufficient.
-
-### `medium_gpt2_p99_tput` — GPT-2 (124M)
-
-- **Baseline:** p99 = 2017 ms · throughput = 17.2 tok/s · RAM ≈ 92 GB
-- **Goal:** p99 latency ≤ **1750 ms** AND throughput ≥ **19 tok/s**
-- **Steps:** 5
-- **Hint:** `bfloat16` helps latency; tuning `max_num_batched_tokens` improves throughput.
-
-### `hard_smollm2_stricter_p99_tput` — SmolLM2-135M-Instruct
-
-- **Baseline:** p99 = 2610 ms · throughput = 12.6 tok/s · RAM ≈ 93 GB
-- **Goal:** p99 latency ≤ **2650 ms** AND throughput ≥ **13 tok/s**
-- **Steps:** 5
-- **Note:** RAM pressure is a real concern here — the agent must also keep memory usage in check.
-
-### `extreme_pythia_p99_tput_ram_optimize` — Pythia-70M-Deduped _(new)_
-
-- **Baseline:** p99 = 1789 ms · throughput = 24.3 tok/s · RAM ≈ 93 GB
-- **Goal:** **Three simultaneous objectives:**
-  1. p99 latency ≤ **780 ms** (below the float32 baseline of ~789 ms)
-  2. throughput ≥ **42 tok/s**
-  3. **Minimize total system RAM** — every GB saved below 108 GB earns additional reward
-- **Steps:** 5
-- **Note:** This is the only task where RAM savings directly contribute to both the per-step reward (up to `+0.30`) and the final score (up to 30% of total). Combines `bfloat16` + low `max_num_batched_tokens` + `max_num_seqs=1` for the best RAM profile.
-
----
-
 ## Tunable Parameters
 
 At each step the agent picks **one** parameter and sets it to a new value from the allowed list:
@@ -95,6 +108,37 @@ At each step the agent picks **one** parameter and sets it to a new value from t
 | `max_num_seqs`           | `1`, `2`, `4`, `8`               | Parallel sequences. Higher = throughput boost, higher p99.     |
 
 Parameters that affect engine architecture (`dtype`, `max_model_len`, `max_num_batched_tokens`, `max_num_seqs`) trigger a **full vLLM restart**. The environment handles process lifecycle automatically.
+
+---
+
+## Tasks
+
+The environment defines **four tasks** of increasing difficulty. Each task specifies which model to deploy, performance targets, and a step budget. Task IDs are descriptive strings that encode the model and the objectives being optimized.
+
+> **Targets are calibrated to real CPU measurements** on this host. They reflect realistic improvements achievable within the step budget — not aspirational "best case" figures.
+
+### `easy_pythia_p99` — Pythia-70M-Deduped
+
+- **Baseline:** p99 = 1789 ms · throughput = 24.3 tok/s · RAM ≈ 93 GB (system total)
+- **Goal:** p99 latency ≤ **1050 ms** (latency-only target)
+
+### `medium_gpt2_p99_tput` — GPT-2 (124M)
+
+- **Baseline:** p99 = 2017 ms · throughput = 17.2 tok/s · RAM ≈ 92 GB
+- **Goal:** p99 latency ≤ **1300 ms** AND throughput ≥ **24 tok/s**
+
+### `hard_smollm2_stricter_p99_tput` — SmolLM2-135M-Instruct
+
+- **Baseline:** p99 = 2610 ms · throughput = 12.6 tok/s · RAM ≈ 93 GB
+- **Goal:** p99 latency ≤ **2100 ms** AND throughput ≥ **15 tok/s**
+
+### `extreme_pythia_p99_tput_ram_optimize` — Pythia-70M-Deduped _(new)_
+
+- **Baseline:** p99 = 1789 ms · throughput = 24.3 tok/s · RAM ≈ 93 GB
+- **Goal:** **Three simultaneous objectives:**
+  1. p99 latency ≤ **780 ms** (below the float32 baseline of ~789 ms)
+  2. throughput ≥ **42 tok/s**
+  3. **Minimize total system RAM** — every GB saved below 108 GB earns additional reward
 
 ---
 
@@ -173,46 +217,11 @@ An **invalid action** (unknown parameter or out-of-range value) incurs a small p
 
 ---
 
-## Project Structure
-
-```
-llm_serve_optimizer_env/
-├── server/
-│   ├── app.py                    # FastAPI app entry point (OpenEnv server)
-│   ├── environment.py            # Core RL environment logic (reset, step, state)
-│   ├── simulator.py              # vLLM process lifecycle + real benchmarking
-│   ├── graders.py                # Task definitions, reward functions, final scoring
-├── data/
-│   ├── model_card.py             # Model registry & valid parameter values
-│   └── baseline_cache.json       # Pre-computed baseline metrics for each task
-├── tests/
-│   ├── test_environment.py       # Unit tests for the RL environment logic
-│   └── test_simulator.py         # Unit tests for the vLLM simulator
-├── client.py                     # OpenEnv WebSocket client for the environment
-├── models.py                     # Pydantic models: Action, Observation, State
-├── inference.py                  # LLM agent script (mandatory submission entry point)
-├── openenv.yaml                  # OpenEnv deployment config
-├── pyproject.toml                # Python project metadata & dependencies (uv-managed)
-├── uv.lock                       # Locked dependency tree (committed, reproducible installs)
-├── Dockerfile                    # Docker image (HF Spaces compatible)
-```
-
----
-
 ## How the Benchmark Works
 
 ### Episode Start (`reset`)
 
 Since baseline metrics for each task's default configuration are deterministic (same model, same initial params, same hardware), they are **pre-computed and saved** to `data/baseline_cache.json` to avoid redundant compute on every episode start. The `reset()` endpoint returns the cached baseline instantly, allowing the agent to begin tuning immediately.
-
-The cache covers all four task IDs with their measured baselines (float32, default params):
-
-| Task ID                                | Model              | Baseline p99 | Baseline tput | Baseline RAM |
-| -------------------------------------- | ------------------ | ------------ | ------------- | ------------ |
-| `easy_pythia_p99`                      | pythia-70m-deduped | 1789 ms      | 24.3 tok/s    | 93.18 GB     |
-| `medium_gpt2_p99_tput`                 | gpt2               | 2017 ms      | 17.2 tok/s    | 92.06 GB     |
-| `hard_smollm2_stricter_p99_tput`       | smollm2-135m       | 2610 ms      | 12.6 tok/s    | 92.67 GB     |
-| `extreme_pythia_p99_tput_ram_optimize` | pythia-70m-deduped | 1789 ms      | 24.3 tok/s    | 93.18 GB     |
 
 > **Note:** RAM values reflect total system RAM in use (measured via `psutil.virtual_memory().used`) at benchmark time on the reference host, not model weights size.
 
@@ -225,6 +234,46 @@ When the agent sends an action:
 3. **Warmup** — 2 warmup requests are sent to prime the server.
 4. **Timed benchmark** — 5 requests are sent; p50/p99 latency and tokens/s throughput are measured from real HTTP round-trips.
 5. **Reward computation** — scores are computed against task targets and returned to the agent.
+
+---
+
+## Docker — Building and Running Locally
+
+The environment server **must be run via Docker**. The Dockerfile is based on `vllm/vllm-openai-cpu` — a pre-built image that includes vLLM compiled for CPU inference. Installing vLLM CPU manually from source requires custom compilation steps that are lengthy and platform-specific; using the Docker image is the only supported and recommended way to run the server.
+
+During the build, all three unique model checkpoints are cloned locally to reduce runtime latency (Pythia-70M, GPT-2, SmolLM2-135M — note that `extreme_pythia_p99_tput_ram_optimize` reuses the same Pythia-70M weights as `easy_pythia_p99`).
+
+> ⚠️ The build step downloads ~700 MB of model weights. It may take several minutes.
+
+### Build the image
+
+```bash
+docker build -f Dockerfile -t llm-serve-optimizer-env .
+```
+
+### Run the container
+
+```bash
+docker run --rm -d --name llm-serve-optimizer-env-container -p 7860:7860 llm-serve-optimizer-env
+```
+
+### Verify it's healthy
+
+```bash
+curl http://localhost:7860/health
+```
+
+### Run tests inside the container
+
+```bash
+docker exec llm-serve-optimizer-env-container pytest
+```
+
+### Stop the container
+
+```bash
+docker stop llm-serve-optimizer-env-container
+```
 
 ---
 
@@ -270,46 +319,6 @@ python inference.py
 ```
 
 The script runs all four tasks in sequence (`easy_pythia_p99`, `medium_gpt2_p99_tput`, `hard_smollm2_stricter_p99_tput`, `extreme_pythia_p99_tput_ram_optimize`) and prints structured `[START]`, `[STEP]`, and `[END]` log lines for each — the mandatory format required by the OpenEnv submission spec — followed by a summary table.
-
----
-
-## Docker — Building and Running Locally
-
-The environment server **must be run via Docker**. The Dockerfile is based on `vllm/vllm-openai-cpu` — a pre-built image that includes vLLM compiled for CPU inference. Installing vLLM CPU manually from source requires custom compilation steps that are lengthy and platform-specific; using the Docker image is the only supported and recommended way to run the server.
-
-During the build, all three unique model checkpoints are cloned locally to reduce runtime latency (Pythia-70M, GPT-2, SmolLM2-135M — note that `extreme_pythia_p99_tput_ram_optimize` reuses the same Pythia-70M weights as `easy_pythia_p99`).
-
-> ⚠️ The build step downloads ~700 MB of model weights. It may take several minutes.
-
-### Build the image
-
-```bash
-docker build -f Dockerfile -t llm-serve-optimizer-env .
-```
-
-### Run the container
-
-```bash
-docker run --rm -d --name llm-serve-optimizer-env-container -p 7860:7860 llm-serve-optimizer-env
-```
-
-### Verify it's healthy
-
-```bash
-curl http://localhost:7860/health
-```
-
-### Run tests inside the container
-
-```bash
-docker exec llm-serve-optimizer-env-container pytest
-```
-
-### Stop the container
-
-```bash
-docker stop llm-serve-optimizer-env-container
-```
 
 ---
 
