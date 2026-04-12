@@ -59,7 +59,7 @@ RAM_SAFETY_LIMIT_GB = 3.0
 # vLLM SERVER SETTINGS
 # ─────────────────────────────────────────────────────────────
 VLLM_PORT = 8100
-VLLM_STARTUP_TIMEOUT_S = 600
+VLLM_STARTUP_TIMEOUT_S = 900
  
 # ─────────────────────────────────────────────────────────────
 # BENCHMARK SETTINGS

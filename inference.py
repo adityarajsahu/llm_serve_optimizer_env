@@ -42,7 +42,6 @@ import json
 import os
 import sys
 import textwrap
-import time
 from typing import List, Optional
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -307,13 +306,9 @@ def main() -> None:
         api_key = API_KEY or "EMPTY"
     )
     results = []
-    t_total = time.time()
 
     for task_id in TASKS:
         results.append(run_task(task_id, llm_client))
-
-    total_elapsed = time.time() - t_total
-
 
 if __name__ == "__main__":
     main()
