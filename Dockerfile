@@ -5,7 +5,7 @@
 # No GPU or vLLM needed; the simulator uses the lookup table.
 # ─────────────────────────────────────────────────────────────
 
-FROM vllm/vllm-openai-cpu:latest-x86_64
+FROM vllm/vllm-openai-cpu:v0.18.1-x86_64
 
 # Keeps Python output unbuffered (important for HF Space logs)
 ENV PYTHONUNBUFFERED=1 \
@@ -24,9 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl git git-lf
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p $HOME/app/models && cd $HOME/app/models && \
-    git clone --depth 1 https://huggingface.co/EleutherAI/pythia-70m-deduped && rm -rf pythia-70m-deduped/.git && \
-    git clone --depth 1 https://huggingface.co/openai-community/gpt2 && rm -rf gpt2/.git && \
-    git clone --depth 1 https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct && rm -rf SmolLM2-135M-Instruct/.git
+    git clone --depth 1 https://huggingface.co/EleutherAI/pythia-70m-deduped && \
+    git clone --depth 1 https://huggingface.co/openai-community/gpt2 && \
+    git clone --depth 1 https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct
 
 # Install Python deps first (layer-cached unless requirements change)
 COPY requirements.txt /tmp/requirements.txt

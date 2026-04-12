@@ -109,7 +109,10 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     )
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    if len(rewards) == 0:
+        rewards_str = "0.00"
+    else:
+        rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
         f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
         flush=True,
@@ -275,7 +278,7 @@ def run_task(task_id: str, llm_client: OpenAI) -> dict:
                 target_latency_ms=obs.target_latency_ms,
                 target_throughput=obs.target_throughput,
             )
-            MAX_REWARD = MAX_STEPS * MAX_REWARD_PER_STEP
+            MAX_REWARD = len(rewards) * MAX_REWARD_PER_STEP
             score = sum(rewards) / MAX_REWARD if MAX_REWARD > 0 else 0.0
             score = min(max(score, 0.01), 0.99)
             success = final_score >= SUCCESS_THRESHOLD
